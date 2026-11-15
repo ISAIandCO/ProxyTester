@@ -6,6 +6,7 @@ The cascade tests really encrypt WireGuard datagrams and relay them through VLES
 import asyncio
 import base64
 import json
+import hashlib
 import os
 import ssl
 import tempfile
@@ -145,7 +146,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             except OSError:
                 pass
 
-    async def vless(self, transport="tcp", reality=False):
+    async def vless(self, transport="tcp", reality=False, redirect=None):
         port = free_port()
         stream = {"network": transport, "security": "none"}
         query = "security=none&type=" + transport
@@ -171,6 +172,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         config = {"log": {"loglevel": "none"}, "inbounds": [{"listen": "127.0.0.1", "port": port, "protocol": "vless",
                   "settings": {"clients": [{"id": UUID}], "decryption": "none"}, "streamSettings": stream}],
                   "outbounds": [{"protocol": "freedom", "settings": {"finalRules": [{"action": "allow", "ip": ["127.0.0.1/32"]}]}}]}
+        if redirect:
+            config["outbounds"][0]["settings"]["redirect"] = redirect
         server = await self.stack.enter_async_context(CoreProcess(binary(CORES, "xray"), "xray", config, port, 3))
         node = parse(f"vless://{UUID}@127.0.0.1:{port}?{query}#Local_{transport}")[0]
         self.assertFalse(node.issue)
@@ -438,6 +441,50 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                     result = await browser_checks(proxy, services, self.cfg, {"ip": "203.0.113.9", "warp": "off"})
         self.assertEqual(result["JSRegion"]["status"], "regional_block", result)
         self.assertEqual(result["JSReady"]["status"], "available", result)
+
+    @unittest.skipUnless(os.environ.get("PROXYTESTER_BROWSER_TESTS") == "1", "Requires Chromium")
+    async def test_chromium_https_domain_through_authenticated_proxy(self):
+        from proxytester.services import browser_options
+        from playwright.async_api import async_playwright
+        certfile, keyfile = certificate(self.temp.name)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile, keyfile)
+        origin = await asyncio.start_server(self.handle, "127.0.0.1", 0, ssl=context)
+        self.stack.callback(origin.close)
+        port = origin.sockets[0].getsockname()[1]
+        cert = x509.load_pem_x509_certificate(Path(certfile).read_bytes())
+        spki = cert.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        pin = base64.b64encode(hashlib.sha256(spki).digest()).decode()
+        node, _ = await self.vless(redirect=f"127.0.0.1:{port}")
+        url = f"https://service.proxytester.invalid:{port}"
+        async with Route(CORES, node, 5).base() as proxy:
+            for headless in (True, False):
+                options = browser_options(proxy, headless=headless)
+                # Trust only this ephemeral test certificate; production TLS validation stays on.
+                options["args"].append("--ignore-certificate-errors-spki-list=" + pin)
+                async with async_playwright() as pw:
+                    browser = await pw.chromium.launch(**options)
+                    try:
+                        page = await browser.new_page()
+                        response = await page.goto(url + "/ready", wait_until="domcontentloaded", timeout=10000)
+                        self.assertEqual(response.status, 200)
+                        await page.wait_for_selector("#ready")
+                    finally:
+                        await browser.close()
+        self.assertTrue(any(r[1] == "/ready" for r in self.requests))
+
+    @unittest.skipUnless(os.environ.get("PROXYTESTER_LIVE_SMOKE") == "1", "Optional public HTTPS diagnostics")
+    async def test_public_google_browser_diagnostics(self):
+        node, _ = await self.vless()
+        self.cfg.update(timeout=20, browser_settle_ms=1000)
+        async with Route(CORES, node, 5).base() as proxy:
+            identity = await verify(proxy, 20)
+            print("PUBLIC HTTPS identity:", identity)
+            if identity["verified"]:
+                services = [{"name": "NotebookLM", "url": "https://notebooklm.google.com/"}, {"name": "Gemini", "url": "https://gemini.google.com/app"}]
+                with patch("proxytester.services.error_kind", lambda e: str(e)):
+                    result = await browser_checks(proxy, services, self.cfg, identity)
+                print("PUBLIC HTTPS browser:", json.dumps(result, ensure_ascii=False))
 
 
 if __name__ == "__main__":

@@ -62,7 +62,9 @@ async def http_check(proxy, service, config):
             value = classify(response.status_code, urls, text, response.headers, success)
             value["method"] = "http"
             return value
-    except (httpx.HTTPError, ValueError, re.error) as e:
+    except re.error:
+        return {"status": "check_error", "reason": "Invalid readiness regex", "cloudflare": "unknown", "method": "http", "stage": "readiness"}
+    except (httpx.HTTPError, ValueError) as e:
         return {"status": "network_error", "reason": error_kind(e), "cloudflare": "unknown", "method": "http"}
 
 
@@ -100,6 +102,7 @@ async def browser_checks(proxy, services, config, identity):
                     raise ValueError("Browser exit identity mismatch")
                 for service in services:
                     redirects, blocked_responses = [], []
+                    stage = "navigation"
 
                     def on_response(resp):
                         if resp.request.is_navigation_request() and resp.frame == page.main_frame:
@@ -113,6 +116,7 @@ async def browser_checks(proxy, services, config, identity):
                         await page.wait_for_timeout(config["browser_settle_ms"])
                         body = (await page.locator("body").inner_text())[:2000000]
                         html = (await page.content())[:2000000]
+                        stage = "readiness"
                         success = False
                         if service.get("success_selector"):
                             matches = page.locator(service["success_selector"])
@@ -129,8 +133,8 @@ async def browser_checks(proxy, services, config, identity):
                         value["browser_identity_verified"] = True
                         results[service["name"]] = value
                     except (Error, ValueError, re.error) as e:
-                        results[service["name"]] = {"status": "network_error", "reason": error_kind(e),
-                                                    "cloudflare": "unknown", "method": "chromium"}
+                        results[service["name"]] = {"status": "check_error" if stage == "readiness" else "network_error", "reason": error_kind(e),
+                                                    "stage": stage, "cloudflare": "unknown", "method": "chromium"}
                     finally:
                         page.remove_listener("response", on_response)
                 await context.close()

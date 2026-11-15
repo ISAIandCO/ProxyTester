@@ -30,6 +30,7 @@ jobs:
       - name: Unit, real transport and Chromium tests
         env:
           PROXYTESTER_BROWSER_TESTS: '1'
+          PROXYTESTER_LIVE_SMOKE: '1'
           PROXYTESTER_TEST_LOGS: '1'
           PROXYTESTER_GUI_QA: '1'
         run: python -m unittest discover -s tests -v

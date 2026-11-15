@@ -27,7 +27,7 @@ def failed(row):
         data = row.get(route, {})
         if data.get("error") or data.get("identity", {}).get("verified") is False:
             return True
-        if any(v.get("status") in ("network_error", "http_error") for v in data.get("services", {}).values()):
+        if any(v.get("status") in ("network_error", "http_error", "check_error") for v in data.get("services", {}).values()):
             return True
     return False
 

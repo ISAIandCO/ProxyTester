@@ -44,6 +44,9 @@ def error_kind(exc):
     # Exception strings can include credentials, URL queries, or response payloads.
     name = type(exc).__name__
     lower = (name + " " + str(exc)).lower()
+    code = re.search(r"\bnet::(ERR_[A-Z0-9_]+)\b", str(exc))
+    if code:
+        return code[1]
     if "timeout" in lower:
         return "timeout"
     if "executable doesn't exist" in lower:

@@ -17,7 +17,7 @@
 </main><script type="application/json" id="data">__REPORT_DATA__</script><script>
 'use strict';
 const R=JSON.parse(document.getElementById('data').textContent), $=id=>document.getElementById(id), rows=R.results;
-const labels={available:'Доступен',regional_block:'Региональное ограничение',blocked:'Защита / блок',unconfirmed:'Не подтверждено',network_error:'Ошибка сети',http_error:'Ошибка HTTP',not_tested:'Не проверено',ok:'VPN работает',failed:'Ошибка',invalid:'Ошибка конфигурации',pending:'Ожидает',running:'Проверяется',cancelled:'Прервано',not_selected:'Не выбран',challenge:'Challenge',captcha:'CAPTCHA',block:'Cloudflare Block',other_captcha:'Другая CAPTCHA',clear_observed:'Нет проверки (CF)',not_observed:'Нет признаков CF',unknown:'Неизвестно'};
+const labels={available:'Доступен',regional_block:'Региональное ограничение',blocked:'Защита / блок',unconfirmed:'Не подтверждено',network_error:'Ошибка сети',check_error:'Ошибка проверки CSS/regex',http_error:'Ошибка HTTP',not_tested:'Не проверено',ok:'VPN работает',failed:'Ошибка',invalid:'Ошибка конфигурации',pending:'Ожидает',running:'Проверяется',cancelled:'Прервано',not_selected:'Не выбран',challenge:'Challenge',captcha:'CAPTCHA',block:'Cloudflare Block',other_captcha:'Другая CAPTCHA',clear_observed:'Нет проверки (CF)',not_observed:'Нет признаков CF',unknown:'Неизвестно'};
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n}, state=(r,route,s)=>r[route]?.services?.[s]?.status||'not_tested';
 const onlyWarp=(r,s)=>state(r,'warp',s)==='available'&&['regional_block','blocked','http_error','network_error'].includes(state(r,'vpn',s));
 const metric=(r,route,key)=>key==='rtt_ms'?r[route]?.latency?.rtt_ms?.median:r[route]?.speed?.[key]?.median;
@@ -25,7 +25,7 @@ const cfStates=(r,route)=>[...Object.values(r[route]?.services||{}),...(r[route]
 const cfRank={block:8,captcha:7,other_captcha:6,challenge:5,http_error:4,unknown:3,clear_observed:2,not_observed:1};
 const worstCf=(r,route)=>cfStates(r,route).sort((a,b)=>(cfRank[b]||0)-(cfRank[a]||0))[0]||'unknown';
 const num=(v,suffix='')=>v==null?'—':Number(v).toLocaleString('ru-RU',{maximumFractionDigits:1})+suffix;
-function badge(value){return el('span',labels[value]||value,'badge '+(['available','ok','clear_observed'].includes(value)?'good':['failed','invalid','blocked','regional_block','block','network_error','http_error'].includes(value)?'bad':['unconfirmed','challenge','captcha','cancelled'].includes(value)?'warn':''))}
+function badge(value){return el('span',labels[value]||value,'badge '+(['available','ok','clear_observed'].includes(value)?'good':['failed','invalid','blocked','regional_block','block','network_error','http_error','check_error'].includes(value)?'bad':['unconfirmed','challenge','captcha','cancelled'].includes(value)?'warn':''))}
 function card(label,value){const c=el('div',undefined,'card');c.append(el('strong',value),el('span',label));return c}
 $('time').textContent=`${new Date(R.created).toLocaleString('ru-RU')} · ${R.completed?'Завершён':'Промежуточный / прерванный отчёт'} · ProxyTester ${R.version}`;
 $('stats').append(card('Всего серверов',rows.length),card('VPN подтверждён',rows.filter(r=>r.vpn?.identity?.verified).length),card('VPN не подтверждён',rows.filter(r=>!r.vpn?.identity?.verified).length),card('Защита обнаружена',rows.filter(r=>['vpn','warp'].some(m=>cfStates(r,m).some(s=>['block','challenge','captcha'].includes(s)))).length));
