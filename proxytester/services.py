@@ -1,5 +1,5 @@
 import re
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
 
@@ -67,7 +67,11 @@ async def http_check(proxy, service, config):
 
 
 def browser_options(proxy, headless=True, executable=None):
-    options = {"headless": headless, "proxy": {"server": proxy, "bypass": "<-loopback>"},
+    p = urlsplit(proxy)
+    proxy_options = {"server": f"http://{p.hostname}:{p.port}", "bypass": "<-loopback>"}
+    if p.username is not None:
+        proxy_options.update(username=unquote(p.username), password=unquote(p.password or ""))
+    options = {"headless": headless, "proxy": proxy_options,
             "args": ["--disable-quic", "--disable-background-networking", "--disable-component-update",
                      "--disable-sync", "--no-first-run", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
                      "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost"]}
@@ -89,7 +93,9 @@ async def browser_checks(proxy, services, config, identity):
                 page.set_default_timeout(config["timeout"] * 1000)
                 # Same browser instance/proxy as the service checks, before reading an authenticated session.
                 response = await page.goto(TRACE_URL, wait_until="domcontentloaded")
-                trace = parse_trace(await page.locator("body").inner_text())
+                if not response:
+                    raise ValueError("Browser exit identity mismatch")
+                trace = parse_trace(await response.text())
                 if not response or response.status != 200 or trace["ip"] != identity["ip"] or trace["warp"] != identity["warp"]:
                     raise ValueError("Browser exit identity mismatch")
                 for service in services:

@@ -20,6 +20,22 @@ class WarpError(RuntimeError):
     pass
 
 
+def valid_identity(value):
+    for key in ("private_key", "peer_key"):
+        if len(base64.b64decode(value[key], validate=True)) != 32:
+            raise ValueError("Invalid cached WireGuard key")
+    if not 1 <= value["endpoint_port"] <= 65535:
+        raise ValueError("Invalid cached WireGuard port")
+    ipaddress.ip_address(value["endpoint_host"])
+    if len(value["reserved"]) != 3 or any(type(b) is not int or not 0 <= b <= 255 for b in value["reserved"]):
+        raise ValueError("Invalid cached WireGuard reserved bytes")
+    if not value["addresses"]:
+        raise ValueError("Missing cached WireGuard addresses")
+    for address in value["addresses"]:
+        ipaddress.ip_interface(address)
+    return value
+
+
 def decode_registration(data, private_key):
     try:
         cfg = data["config"]
@@ -57,7 +73,7 @@ class WarpCache:
                 try:
                     cached = json.loads(path.read_text())
                     if time.time() - cached["created"] < config["warp_cache_days"] * 86400:
-                        return cached, "cache"
+                        return valid_identity(cached), "cache"
                 except (ValueError, KeyError, TypeError):
                     pass
             if self.rate_limited:
@@ -102,5 +118,6 @@ class WarpCache:
                     except (ValueError, KeyError, StopIteration) as e:
                         raise WarpError("WARP endpoint remote DNS returned no IPv4") from e
             value["registration_exit_ip"] = identity["ip"]
+            valid_identity(value)
             atomic_json(path, value)
             return value, "registered_through_vpn"

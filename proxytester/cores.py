@@ -4,6 +4,7 @@ import io
 import json
 import os
 import platform
+import secrets
 import socket
 import subprocess
 import tarfile
@@ -18,6 +19,7 @@ from pathlib import Path
 from .util import atomic_json
 
 LOCK = json.loads(Path(__file__).with_name("cores.lock.json").read_text())
+_PORTS = set()
 
 
 def binary(directory, name):
@@ -66,24 +68,33 @@ def install(directory, target=None):
 
 
 def free_port():
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+    while True:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        if port not in _PORTS:
+            _PORTS.add(port)
+            return port
 
 
-def xray_config(node, port):
+def xray_config(node, port, auth=None):
     outbound = deepcopy(node.outbound)
     outbound["tag"] = "vpn"
+    settings = {"auth": "password" if auth else "noauth", "udp": True, "ip": "127.0.0.1"}
+    if auth:
+        settings["accounts"] = [{"user": auth[0], "pass": auth[1]}]
     return {"log": {"loglevel": "none"},
             "inbounds": [{"listen": "127.0.0.1", "port": port, "protocol": "socks", "tag": "test",
-                          "settings": {"auth": "noauth", "udp": True, "ip": "127.0.0.1"}}],
+                          "settings": settings}],
             "outbounds": [outbound],
             "routing": {"domainStrategy": "AsIs", "rules": [{"type": "field", "inboundTag": ["test"], "outboundTag": "vpn"}]}}
 
 
-def sing_config(node, port, xray_port=None, warp=None):
+def sing_config(node, port, xray_port=None, warp=None, auth=None, backhaul_auth=None):
     if node.core == "xray":
         vpn = {"type": "socks", "tag": "vpn", "server": "127.0.0.1", "server_port": xray_port, "version": "5"}
+        if backhaul_auth:
+            vpn.update(username=backhaul_auth[0], password=backhaul_auth[1])
     else:
         vpn = deepcopy(node.outbound)
         vpn["tag"] = "vpn"
@@ -95,6 +106,8 @@ def sing_config(node, port, xray_port=None, warp=None):
               "inbounds": [{"type": "mixed", "tag": "test", "listen": "127.0.0.1", "listen_port": port}],
               "outbounds": [vpn],
               "route": {"final": final, "default_domain_resolver": "remote"}}
+    if auth:
+        config["inbounds"][0]["users"] = [{"username": auth[0], "password": auth[1]}]
     if warp:
         config["endpoints"] = [{"type": "wireguard", "tag": "warp", "system": False, "mtu": 1280,
                                 "address": warp["addresses"], "private_key": warp["private_key"],
@@ -169,6 +182,9 @@ class CoreProcess:
                     reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
                     writer.close()
                     await writer.wait_closed()
+                    await asyncio.sleep(.1)
+                    if self.process.returncode is not None:
+                        raise CoreError(f"{self.kind}: listener bind failed or process exited")
                     return self
                 except OSError:
                     await asyncio.sleep(.08)
@@ -193,6 +209,8 @@ class Route:
     def __init__(self, directory, node, timeout):
         self.directory, self.node, self.timeout = directory, node, timeout
         self.xray_port = None
+        self.auth = (secrets.token_hex(8), secrets.token_hex(16))
+        self.backhaul_auth = (secrets.token_hex(8), secrets.token_hex(16))
 
     @asynccontextmanager
     async def base(self):
@@ -201,13 +219,13 @@ class Route:
             self.node = await bootstrap(self.node)
             if self.node.core == "xray":
                 self.xray_port = free_port()
-                await stack.enter_async_context(CoreProcess(binary(self.directory, "xray"), "xray", xray_config(self.node, self.xray_port), self.xray_port, self.timeout))
+                await stack.enter_async_context(CoreProcess(binary(self.directory, "xray"), "xray", xray_config(self.node, self.xray_port, self.backhaul_auth), self.xray_port, self.timeout))
             port = free_port()
-            await stack.enter_async_context(CoreProcess(binary(self.directory, "sing-box"), "sing-box", sing_config(self.node, port, self.xray_port), port, self.timeout))
-            yield f"http://127.0.0.1:{port}"
+            await stack.enter_async_context(CoreProcess(binary(self.directory, "sing-box"), "sing-box", sing_config(self.node, port, self.xray_port, auth=self.auth, backhaul_auth=self.backhaul_auth), port, self.timeout))
+            yield f"http://{self.auth[0]}:{self.auth[1]}@127.0.0.1:{port}"
 
     @asynccontextmanager
     async def cascade(self, warp):
         port = free_port()
-        async with CoreProcess(binary(self.directory, "sing-box"), "sing-box", sing_config(self.node, port, self.xray_port, warp), port, self.timeout):
-            yield f"http://127.0.0.1:{port}"
+        async with CoreProcess(binary(self.directory, "sing-box"), "sing-box", sing_config(self.node, port, self.xray_port, warp, self.auth, self.backhaul_auth), port, self.timeout):
+            yield f"http://{self.auth[0]}:{self.auth[1]}@127.0.0.1:{port}"

@@ -80,6 +80,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.subscription = f"vless://{UUID}@example.com:443?security=none#Test".encode()
         self.reg_status = 200
         self.reg_body = {}
+        self.registration_hook = None
         self.origin = await asyncio.start_server(self.handle, "127.0.0.1", 0)
         self.port = self.origin.sockets[0].getsockname()[1]
         self.url = f"http://127.0.0.1:{self.port}"
@@ -115,10 +116,13 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 from urllib.parse import parse_qs, urlsplit
                 payload = b"x" * int(parse_qs(urlsplit(path).query)["bytes"][0])
             elif path.startswith("/reg"):
+                if self.registration_hook:
+                    self.reg_body = await self.registration_hook(json.loads(body))
                 status, payload, content_type = self.reg_status, json.dumps(self.reg_body).encode(), "application/json"
             elif path.startswith("/subscription"):
                 status, payload = self.subscription_status, self.subscription
             elif path == "/trace":
+                content_type = "text/plain"
                 payload = b"ip=203.0.113.9\nwarp=off\nloc=DE\ncolo=LOCAL\n"
             elif path == "/ip":
                 payload = b"203.0.113.9"
@@ -182,9 +186,10 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         node = parse(f"hysteria2://local-secret@127.0.0.1:{port}?insecure=1&sni=localhost&obfs=salamander&obfs-password=local-obfs#Local_HY2")[0]
         return node, server
 
-    async def wireguard(self):
+    async def wireguard(self, enrolled_public=None):
         server_private, server_public = keypair()
         client_private, client_public = keypair()
+        client_public = enrolled_public or client_public
         port = free_port()
         config = {"log": {"disabled": True}, "endpoints": [{"type": "wireguard", "tag": "wg", "system": False,
                   "listen_port": port, "address": ["10.88.0.1/32"], "private_key": server_private,
@@ -292,6 +297,23 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(WarpError):
                     await cache.get(node, proxy, {"verified": True, "ip": "203.0.113.9"}, self.cfg)
             self.assertEqual(sum(r[1] == "/reg" for r in self.requests), 1)
+
+    async def test_generated_warp_identity_drives_real_wireguard_cascade(self):
+        node, _ = await self.vless("xhttp")
+        async def enroll(payload):
+            wg, _ = await self.wireguard(payload["key"])
+            return {"id": "enrolled-fixture", "config": {"client_id": "AAAA", "interface": {"addresses": {"v4": "10.88.0.2"}},
+                    "peers": [{"public_key": wg["peer_key"], "endpoint": {"v4": "127.0.0.1:" + str(wg["endpoint_port"])}}]}}
+        self.registration_hook = enroll
+        self.cfg["warp_api"] = self.url
+        route = Route(CORES, node, 3)
+        async with route.base() as proxy:
+            cache = WarpCache(Path(self.temp.name) / "cache")
+            identity, _ = await cache.get(node, proxy, {"verified": True, "ip": "203.0.113.9"}, self.cfg)
+            async with route.cascade(identity) as cascade:
+                async with client(cascade, 5) as session:
+                    url = self.url.replace("127.0.0.1", "198.18.0.99") + "/ok"
+                    self.assertEqual((await session.get(url)).text, "WORKING_APP")
 
     async def test_subscription_hwid_header_query_bearer_and_http_error(self):
         for mode in ("header", "query", "bearer"):

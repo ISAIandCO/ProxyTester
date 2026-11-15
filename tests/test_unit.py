@@ -13,10 +13,10 @@ from proxytester.cores import sing_config, xray_config
 from proxytester.network import client, parse_trace
 from proxytester.report import write_report
 from proxytester.runner import failed
-from proxytester.services import classify, cloudflare
+from proxytester.services import browser_options, classify, cloudflare
 from proxytester.subscriptions import parse
 from proxytester.util import public_url
-from proxytester.warp import decode_registration, WarpError
+from proxytester.warp import decode_registration, valid_identity, WarpError
 
 UUID = "11111111-1111-4111-8111-111111111111"
 URI = f"vless://{UUID}@example.com:443?security=reality&sni=example.org&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=ab&type=tcp&flow=xtls-rprx-vision#🇩🇪%20VPN"
@@ -81,6 +81,13 @@ class SubscriptionTests(unittest.TestCase):
         native["streamSettings"]["sockopt"] = {"dialerProxy": "direct"}
         self.assertIn("Unsupported", parse(json.dumps(native))[0].issue)
 
+    def test_benign_native_socket_options_preserved(self):
+        native = parse(URI)[0].outbound
+        native["streamSettings"]["sockopt"] = {"domainStrategy": "UseIPv4", "tcpKeepAliveIdle": 30}
+        node = parse(json.dumps(native))[0]
+        self.assertFalse(node.issue)
+        self.assertEqual(node.outbound["streamSettings"]["sockopt"]["tcpKeepAliveIdle"], 30)
+
     def test_singbox_reality(self):
         n = parse(json.dumps({"outbounds": [{"type": "vless", "tag": "US_test", "server": "example.com", "server_port": 443,
             "uuid": UUID, "tls": {"enabled": True, "server_name": "example.org", "reality": {"enabled": True, "public_key": "AAA", "short_id": "ab"}}}]}))[0]
@@ -138,6 +145,16 @@ class RoutingTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 client(value, 1)
 
+    def test_route_auth_is_present_on_both_local_hops(self):
+        n = parse(URI)[0]
+        c = sing_config(n, 10001, 10002, auth=("front", "secret"), backhaul_auth=("back", "other"))
+        self.assertEqual(c["inbounds"][0]["users"][0]["username"], "front")
+        self.assertEqual(c["outbounds"][0]["username"], "back")
+        self.assertEqual(xray_config(n, 10002, ("back", "other"))["inbounds"][0]["settings"]["auth"], "password")
+        options = browser_options("http://front:secret@127.0.0.1:10001")
+        self.assertEqual(options["proxy"]["server"], "http://127.0.0.1:10001")
+        self.assertEqual(options["proxy"]["password"], "secret")
+
 
 class ClassificationTests(unittest.TestCase):
     def test_notebook_redirect_anywhere_in_history(self):
@@ -187,6 +204,13 @@ class WarpTests(unittest.TestCase):
         v["config"]["client_id"] = "AQI="
         with self.assertRaises(WarpError):
             decode_registration(v, "private")
+
+    def test_cache_corruption_detected_before_core_launch(self):
+        value = decode_registration(self.fixture(), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+        self.assertTrue(valid_identity(value))
+        value["reserved"] = [999, 0, 0]
+        with self.assertRaises(ValueError):
+            valid_identity(value)
 
 
 class OutputTests(unittest.TestCase):

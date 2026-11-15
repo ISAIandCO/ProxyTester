@@ -50,9 +50,14 @@ def boolean(value):
 def no_routing(value):
     if isinstance(value, dict):
         forbidden = {"dialerProxy", "proxySettings", "detour", "downloadSettingsFromFile", "certificate_path",
-                     "key_path", "certificates", "pinnedPeerCertificateChainSha256", "acceptProxyProtocol", "sockopt"}
+                     "key_path", "certificates", "acceptProxyProtocol"}
         if forbidden.intersection(value):
             raise ValueError("Unsupported imported routing, socket or file option; export a single standalone node")
+        if "sockopt" in value:
+            allowed = {"domainStrategy", "tcpFastOpen", "tcpNoDelay", "tcpKeepAliveIdle", "tcpKeepAliveInterval",
+                       "tcpUserTimeout", "tcpCongestion", "tcpMaxSeg", "tcpMss", "tcpWindowClamp"}
+            if not isinstance(value["sockopt"], dict) or set(value["sockopt"]) - allowed:
+                raise ValueError("Unsupported imported socket routing option")
         for v in value.values():
             no_routing(v)
     elif isinstance(value, list):
