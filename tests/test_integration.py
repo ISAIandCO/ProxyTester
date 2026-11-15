@@ -475,16 +475,53 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
 
     @unittest.skipUnless(os.environ.get("PROXYTESTER_LIVE_SMOKE") == "1", "Optional public HTTPS diagnostics")
     async def test_public_google_browser_diagnostics(self):
+        from proxytester.services import browser_options
+        from proxytester.network import bounded_get
+        from playwright.async_api import async_playwright, Error
+        from urllib.parse import urlsplit
         node, _ = await self.vless()
         self.cfg.update(timeout=20, browser_settle_ms=1000)
         async with Route(CORES, node, 5).base() as proxy:
             identity = await verify(proxy, 20)
             print("PUBLIC HTTPS identity:", identity)
             if identity["verified"]:
+                async with client(proxy, 12) as session:
+                    for url in ("https://notebooklm.google.com/", "https://gemini.google.com/app"):
+                        try:
+                            response, text = await bounded_get(session, url)
+                            print("PUBLIC HTTP probe:", response.status_code, str(response.url).split("?")[0], len(text))
+                        except Exception as exc:
+                            print("PUBLIC HTTP probe error:", type(exc).__name__)
                 services = [{"name": "NotebookLM", "url": "https://notebooklm.google.com/"}, {"name": "Gemini", "url": "https://gemini.google.com/app"}]
                 with patch("proxytester.services.error_kind", lambda e: str(e)):
                     result = await browser_checks(proxy, services, self.cfg, identity)
                 print("PUBLIC HTTPS browser:", json.dumps(result, ensure_ascii=False))
+                for mode in ("original", "no_resolver_rule", "default_args"):
+                    options = browser_options(proxy)
+                    if mode == "no_resolver_rule":
+                        options["args"] = [arg for arg in options["args"] if not arg.startswith("--host-resolver-rules=")]
+                    elif mode == "default_args":
+                        options["args"] = []
+                    async with async_playwright() as pw:
+                        browser = await pw.chromium.launch(**options)
+                        try:
+                            page = await browser.new_page()
+                            failures, responses = [], []
+                            page.on("requestfailed", lambda req: failures.append([urlsplit(req.url).hostname, req.failure]))
+                            page.on("response", lambda resp: responses.append([urlsplit(resp.url).hostname, resp.status]))
+                            try:
+                                await page.goto("https://notebooklm.google.com/", timeout=12000, wait_until="domcontentloaded")
+                                error = "none"
+                            except Error as exc:
+                                error = str(exc).split("Call log:")[0]
+                            print("PUBLIC CHROME mode:", mode, "error:", error, "url:", page.url.split("?")[0], "state:", await page.evaluate("document.readyState"), "failures:", failures[-10:], "responses:", responses[-10:])
+                        finally:
+                            await browser.close()
+                if self.logfile:
+                    self.logfile.flush()
+                    self.logfile.seek(0)
+                    lines = self.logfile.read().splitlines()
+                    print("PUBLIC CORE:", "\n".join(line for line in lines if any(s in line.lower() for s in ("google", "failed", "error", "blackhol")))[-15000:])
 
 
 if __name__ == "__main__":
