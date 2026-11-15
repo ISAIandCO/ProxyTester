@@ -137,7 +137,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 query += "&path=/test&mode=auto"
         config = {"log": {"loglevel": "none"}, "inbounds": [{"listen": "127.0.0.1", "port": port, "protocol": "vless",
                   "settings": {"clients": [{"id": UUID}], "decryption": "none"}, "streamSettings": stream}],
-                  "outbounds": [{"protocol": "freedom"}]}
+                  "outbounds": [{"protocol": "freedom", "settings": {"finalRules": [{"action": "allow", "ip": ["127.0.0.1/32"]}]}}]}
         server = await self.stack.enter_async_context(CoreProcess(binary(CORES, "xray"), "xray", config, port, 3))
         node = parse(f"vless://{UUID}@127.0.0.1:{port}?{query}#Local_{transport}")[0]
         self.assertFalse(node.issue)

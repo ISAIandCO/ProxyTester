@@ -97,6 +97,18 @@ class SubscriptionTests(unittest.TestCase):
         nodes = parse("ss://aaa@server:443#One\nss://bbb@server:443#Two")
         self.assertNotEqual(nodes[0].id, nodes[1].id)
 
+    def test_same_node_across_sources_has_same_cache_key(self):
+        self.assertEqual(parse(URI, "source-1")[0].id, parse(URI, "source-2")[0].id)
+
+    def test_missing_hy2_password_and_zero_port(self):
+        self.assertTrue(parse("hy2://example.com:443")[0].issue)
+        self.assertTrue(parse(f"vless://{UUID}@example.com:0")[0].issue)
+
+    def test_malformed_entry_does_not_stop_later_json_nodes(self):
+        nodes = parse(json.dumps([URI, 42, HY2]))
+        self.assertEqual(len(nodes), 3)
+        self.assertEqual(nodes[-1].protocol, "hysteria2")
+
     def test_no_config_secret_in_public(self):
         public = json.dumps(parse(HY2)[0].public())
         self.assertNotIn("password", public)
@@ -182,11 +194,11 @@ class OutputTests(unittest.TestCase):
         r = {"services": ["NotebookLM"], "results": [{"name": '=HYPERLINK("evil")</script><script>alert(1)</script>', "id": "one", "country": "DE", "protocol": "vless", "status": "invalid"}]}
         with tempfile.TemporaryDirectory() as d:
             path = write_report(Path(d) / "report.html", r)
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
             self.assertNotIn('</script><script>alert(1)', text)
             self.assertIn("\\u003c/script", text)
             self.assertIn("'=HYPERLINK", path.with_suffix(".csv").read_text(encoding="utf-8-sig"))
-            self.assertEqual(json.loads(path.with_suffix(".json").read_text())["results"][0]["id"], "one")
+            self.assertEqual(json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))["results"][0]["id"], "one")
 
     def test_url_query_removed(self):
         self.assertEqual(public_url("https://user:password@example.com/app?token=secret#s"), "https://example.com/app")

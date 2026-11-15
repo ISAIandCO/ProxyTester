@@ -23,6 +23,7 @@ DEFAULT = {
     "warp_api": "https://api.cloudflareclient.com/v0a4471",
     "warp_cache_days": 7,
     "browser": True,
+    "browser_executable": None,
     "browser_settle_ms": 3000,
     "storage_state": None,
     "services": [
@@ -37,7 +38,16 @@ DEFAULT = {
 
 def load(path):
     result = deepcopy(DEFAULT)
-    result.update(json.loads(Path(path).read_text(encoding="utf-8")))
+    supplied = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(supplied, dict):
+        raise ValueError("Settings must be a JSON object")
+    result.update(supplied)
+    for key in ("subscriptions", "files", "services", "cloudflare_urls"):
+        if not isinstance(result[key], list):
+            raise ValueError(f"{key} must be a list")
+    for key in ("speed", "warp", "browser"):
+        if not isinstance(result[key], bool):
+            raise ValueError(f"{key} must be true or false")
     for key, low, high in (("parallel", 1, 8), ("timeout", 1, 180), ("node_timeout", 10, 3600),
                            ("retries", 0, 3), ("latency_samples", 1, 20), ("speed_repeats", 1, 5),
                            ("download_bytes", 1000, 200000000), ("upload_bytes", 0, 50000000),
@@ -46,6 +56,8 @@ def load(path):
             raise ValueError(f"Invalid {key}: expected {low}..{high}")
     names = []
     for s in result["services"]:
+        if not isinstance(s, dict) or not isinstance(s.get("url"), str):
+            raise ValueError("Each service requires name and URL")
         web_url(s["url"])
         if not s.get("name") or s["name"] in names:
             raise ValueError("Service names must be nonempty and unique")
@@ -54,9 +66,14 @@ def load(path):
                   result["upload_url"], result["warp_api"], *result["cloudflare_urls"]]:
         web_url(value)
     for source in result["subscriptions"]:
+        if not isinstance(source, dict) or not isinstance(source.get("url"), str):
+            raise ValueError("Each subscription requires a URL")
         web_url(source["url"])
         if source.get("hwid_mode", "header") not in ("header", "query", "bearer"):
             raise ValueError("hwid_mode must be header, query or bearer")
+        for field in ("headers", "query"):
+            if not isinstance(source.get(field, {}), dict):
+                raise ValueError(f"Subscription {field} must be an object")
     return result
 
 

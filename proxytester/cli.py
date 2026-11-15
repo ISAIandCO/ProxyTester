@@ -32,7 +32,7 @@ async def login(cfg, args):
         if not identity["verified"]:
             raise ValueError("VPN identity could not be verified")
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(**browser_options(proxy, headless=False))
+            browser = await pw.chromium.launch(**browser_options(proxy, headless=False, executable=cfg.get("browser_executable")))
             try:
                 context = await browser.new_context(service_workers="block")
                 page = await context.new_page()
@@ -117,7 +117,7 @@ def main():
         if cfg["browser"]:
             from playwright.sync_api import sync_playwright
             with sync_playwright() as pw:
-                available = Path(pw.chromium.executable_path).exists()
+                available = Path(cfg.get("browser_executable") or pw.chromium.executable_path).exists()
             if not available:
                 print("Chromium не найден. Выполните proxytester setup (или отключите browser в настройках).")
                 return 2
@@ -126,6 +126,9 @@ def main():
             result = asyncio.run(runner.run(args.resume, args.retry_failed, args.only.split(",") if args.only else None))
         except KeyboardInterrupt:
             result = Path(args.output).resolve()
+            if not runner.report:
+                print("Прервано во время загрузки подписок; новый отчёт ещё не создан.")
+                return 130
             print("Прервано. Промежуточные результаты сохранены.")
         print("Отчёт: " + str(result))
         if args.open:

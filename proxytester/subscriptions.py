@@ -96,7 +96,9 @@ def from_uri(line):
     if len({k for k, _ in pairs}) != len(pairs):
         raise ValueError("Duplicate URI parameter")
     q = dict(pairs)
-    host, port = p.hostname, p.port or 443
+    if "@" not in p.netloc:
+        raise ValueError("Missing proxy credentials")
+    host, port = p.hostname, 443 if p.port is None else p.port
     if protocol == "vless":
         allowed = {"encryption", "flow", "security", "type", "sni", "serverName", "fp", "pbk", "sid", "spx",
                    "alpn", "allowInsecure", "insecure", "host", "path", "mode", "extra", "serviceName", "authority",
@@ -291,7 +293,8 @@ def parse(text, source="local"):
             name = value.get("name", value.get("tag", "Invalid entry")) if isinstance(value, dict) else "Invalid entry"
             node = Node(name, issue=safe_name(message))
         node.source = source
-        node.id = identifier([source, node.id, value])
+        if node.issue:
+            node.id = identifier([node.id, value])
         nodes.append(node)
 
     if text.startswith(("{", "[")) or re.search(r"(?m)^proxies\s*:", text):
@@ -306,9 +309,15 @@ def parse(text, source="local"):
                     if isinstance(config, str):
                         add(config, "uri")
                     else:
+                        if not isinstance(config, dict):
+                            add(config, "native")
+                            continue
                         outbounds = config.get("outbounds", [config])
+                        if not isinstance(outbounds, list):
+                            add({}, "native")
+                            continue
                         for item in outbounds:
-                            if item.get("type", item.get("protocol")) in ("direct", "block", "dns", "freedom", "blackhole", "selector", "urltest"):
+                            if isinstance(item, dict) and item.get("type", item.get("protocol")) in ("direct", "block", "dns", "freedom", "blackhole", "selector", "urltest"):
                                 continue
                             add(item, "native")
         except (ValueError, TypeError, AttributeError, yaml.YAMLError):

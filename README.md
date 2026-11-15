@@ -90,6 +90,7 @@ python -m proxytester run --open
 | `speed_repeats` | Повторы скорости (1–5), отчёт показывает медиану/разброс |
 | `warp` | Отключить весь каскад и регистрацию через `false` |
 | `browser` | JavaScript-проверки в Chromium; `false` оставляет HTTP-проверки |
+| `browser_executable` | Необязательный путь к установленному Chrome/Chromium, если встроенный браузер скачать невозможно |
 | `warp_cache_days` | Срок повторного использования identity на тот же сервер, по умолчанию 7 дней |
 | `storage_state` | Путь к сохранённой авторизованной сессии Chromium |
 

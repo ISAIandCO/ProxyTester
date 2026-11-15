@@ -66,11 +66,14 @@ async def http_check(proxy, service, config):
         return {"status": "network_error", "reason": error_kind(e), "cloudflare": "unknown", "method": "http"}
 
 
-def browser_options(proxy, headless=True):
-    return {"headless": headless, "proxy": {"server": proxy, "bypass": "<-loopback>"},
+def browser_options(proxy, headless=True, executable=None):
+    options = {"headless": headless, "proxy": {"server": proxy, "bypass": "<-loopback>"},
             "args": ["--disable-quic", "--disable-background-networking", "--disable-component-update",
                      "--disable-sync", "--no-first-run", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
                      "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost"]}
+    if executable:
+        options["executable_path"] = executable
+    return options
 
 
 async def browser_checks(proxy, services, config, identity):
@@ -78,7 +81,7 @@ async def browser_checks(proxy, services, config, identity):
     results = {}
     try:
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(**browser_options(proxy))
+            browser = await pw.chromium.launch(**browser_options(proxy, executable=config.get("browser_executable")))
             try:
                 state = config.get("storage_state")
                 context = await browser.new_context(storage_state=state, service_workers="block", locale="en-US")

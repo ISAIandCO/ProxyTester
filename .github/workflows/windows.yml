@@ -8,6 +8,8 @@ on:
     paths: ['proxytester/**', 'tests/**', 'scripts/**', 'pyproject.toml', '.github/workflows/windows.yml']
 permissions:
   contents: read
+env:
+  PYTHONUTF8: '1'
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
