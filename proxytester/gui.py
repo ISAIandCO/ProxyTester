@@ -302,7 +302,7 @@ class App:
         advanced.pack(fill="x", pady=(18, 0))
         advanced.columnconfigure(1, weight=1)
         for row, (key, label) in enumerate((("latency_url", "Адрес для задержки"), ("download_url", "Download URL ({bytes} — объём)"),
-                ("upload_url", "Upload URL"), ("warp_api", "WARP API"), ("browser_executable", "Свой Chrome / Chromium"), ("storage_state", "Файл авторизованной сессии"))):
+                ("upload_url", "Upload URL"), ("warp_api", "WARP API"), ("browser_executable", "Свой Brave / Chrome / Edge"), ("storage_state", "Файл авторизованной сессии"))):
             self.vars[key] = tk.StringVar()
             ttk.Label(advanced, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=5)
             ttk.Entry(advanced, textvariable=self.vars[key]).grid(row=row, column=1, sticky="ew", pady=5)

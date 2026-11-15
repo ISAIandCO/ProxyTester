@@ -14,6 +14,7 @@ from proxytester.network import client, parse_trace
 from proxytester.report import write_report
 from proxytester.runner import failed
 from proxytester.services import browser_options, classify, cloudflare
+from proxytester.login_browser import login_executable
 from proxytester.subscriptions import parse
 from proxytester.util import error_kind, public_url
 from proxytester.warp import decode_registration, valid_identity, WarpError
@@ -214,6 +215,22 @@ class WarpTests(unittest.TestCase):
 
 
 class OutputTests(unittest.TestCase):
+    def test_brave_is_discovered_and_explicit_browser_takes_precedence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brave = Path(directory) / "BraveSoftware/Brave-Browser/Application/brave.exe"
+            brave.parent.mkdir(parents=True)
+            brave.touch()
+            custom = Path(directory) / "custom.exe"
+            custom.touch()
+            with patch.dict(os.environ, {"LOCALAPPDATA": directory}, clear=True), patch("proxytester.login_browser.shutil.which", return_value=None):
+                self.assertEqual(login_executable(None, "missing"), str(brave))
+                self.assertEqual(login_executable(str(custom), "missing"), str(custom.resolve()))
+
+    def test_missing_configured_browser_does_not_silently_switch(self):
+        from proxytester.services import BrowserConnectionError
+        with self.assertRaises(BrowserConnectionError):
+            login_executable("/does-not-exist/proxytester-browser.exe", "bundled")
+
     def test_chromium_error_code_is_preserved_without_secret_url(self):
         exc = RuntimeError("Page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://example.com/?token=SECRET")
         self.assertEqual(error_kind(exc), "ERR_TUNNEL_CONNECTION_FAILED")

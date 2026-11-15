@@ -483,8 +483,10 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
     @unittest.skipUnless(os.environ.get("PROXYTESTER_BROWSER_TESTS") == "1", "Requires Chromium")
     async def test_login_opens_https_service_through_selected_vpn(self):
         from proxytester.cli import login
+        from proxytester.login_browser import manual_browser
         from proxytester.services import browser_options
         from proxytester.util import atomic_json
+        from contextlib import asynccontextmanager
         from types import SimpleNamespace
         certfile, keyfile = certificate(self.temp.name)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -501,7 +503,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         atomic_json(source, native)
         node_id = parse(json.dumps(native))[0].id
         url = f"https://service.proxytester.invalid:{port}"
-        cfg = {**self.cfg, "files": [str(source)], "services": [{"name": "Fixture", "url": url + "/ready"}], "timeout": 5}
+        cfg = {**self.cfg, "files": [str(source)], "services": [{"name": "Fixture", "url": url + "/ready"}], "timeout": 15,
+               "browser_executable": os.environ.get("PROXYTESTER_LOGIN_BROWSER_TEST")}
         config_path = Path(self.temp.name) / "config.json"
         session_path = Path(self.temp.name) / "session.json"
         atomic_json(config_path, cfg)
@@ -512,18 +515,42 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         async def verified(*args, **kwargs):
             return {"verified": True, "ip": "203.0.113.9", "warp": "off"}
         confirmed = False
+        captured = {}
+        @asynccontextmanager
+        async def capture(*args, **kwargs):
+            async with manual_browser(*args, **kwargs) as (context, page):
+                captured.update(context=context, page=page)
+                # A direct browser launch must not inherit Playwright's automation flag.
+                self.assertFalse(await page.evaluate("navigator.webdriver"))
+                yield context, page
         async def confirm():
             nonlocal confirmed
             self.assertTrue(any(r[1] == "/ready" for r in self.requests))
+            await captured["page"].evaluate("localStorage.setItem('fixture-session', 'ready')")
+            await captured["context"].add_cookies([{"name": "fixture-session", "value": "ready", "url": url, "secure": True}])
             confirmed = True
         progress = []
         args = SimpleNamespace(node=node_id, cores=str(CORES), config=str(config_path), session=str(session_path))
-        with patch("proxytester.cli.verify", verified), patch("proxytester.cli.browser_options", options), patch("proxytester.services.TRACE_URL", url + "/trace"):
+        with patch("proxytester.cli.verify", verified), patch("proxytester.cli.manual_browser", capture), patch("proxytester.login_browser.browser_options", options), patch("proxytester.services.TRACE_URL", url + "/trace"):
             await login(cfg, args, confirm=confirm, progress=progress.append)
         self.assertTrue(confirmed)
         self.assertTrue(session_path.exists())
         self.assertEqual(json.loads(config_path.read_text(encoding="utf-8"))["storage_state"], str(session_path.resolve()))
         self.assertTrue(any("203.0.113.9" in text for text in progress))
+        print("MANUAL LOGIN:", progress)
+        # Exported state is consumable by the same headless Chromium used for checks.
+        from playwright.async_api import async_playwright
+        async with Route(CORES, node, 5).base() as proxy:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(**options(proxy))
+                try:
+                    context = await browser.new_context(storage_state=str(session_path))
+                    page = await context.new_page()
+                    await page.goto(url + "/ready")
+                    self.assertEqual(await page.evaluate("localStorage.getItem('fixture-session')"), "ready")
+                    self.assertTrue(any(c["name"] == "fixture-session" for c in await context.cookies()))
+                finally:
+                    await browser.close()
 
     @unittest.skipUnless(os.environ.get("PROXYTESTER_LIVE_SMOKE") == "1", "Optional public Google smoke test")
     async def test_public_google_https_checks_and_login(self):
@@ -546,7 +573,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         source = Path(self.temp.name) / "public-node.json"
         native = {**node.outbound, "tag": node.name}
         atomic_json(source, native)
-        cfg = {**self.cfg, "files": [str(source)]}
+        cfg = {**self.cfg, "files": [str(source)], "browser_executable": os.environ.get("PROXYTESTER_LOGIN_BROWSER_TEST")}
         config_path = Path(self.temp.name) / "config.json"
         session_path = Path(self.temp.name) / "session.json"
         atomic_json(config_path, cfg)

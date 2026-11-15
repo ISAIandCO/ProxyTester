@@ -28,6 +28,17 @@ jobs:
         run: |
           python -m pip install . pyinstaller==6.17.0
           python -m proxytester setup
+      - name: Prepare pinned Brave for manual login QA
+        shell: pwsh
+        run: |
+          $archive = "$env:RUNNER_TEMP/brave.zip"
+          Invoke-WebRequest 'https://github.com/brave/brave-browser/releases/download/v1.99.57/brave-v1.99.57-win32-x64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne '42ba3a5445f717b429fb3fe457e7e531cd1c208f06a2dc9315b1fa31c09bc8b9') { throw 'Brave SHA256 mismatch' }
+          Expand-Archive $archive "$env:RUNNER_TEMP/brave-qa"
+          $browser = (Get-ChildItem "$env:RUNNER_TEMP/brave-qa" -Filter brave.exe -Recurse | Select-Object -First 1).FullName
+          if (!$browser) { throw 'Brave executable missing' }
+          "PROXYTESTER_LOGIN_BROWSER_TEST=$browser" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Get-Item $browser).VersionInfo | Select-Object ProductName, ProductVersion
       - name: Unit, real transport and Chromium tests
         env:
           PROXYTESTER_BROWSER_TESTS: '1'

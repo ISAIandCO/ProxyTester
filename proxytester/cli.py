@@ -10,9 +10,10 @@ from . import __version__
 from .config import load, wizard
 from .cores import install, Route
 from .network import verify
+from .login_browser import manual_browser
 from .report import write_report
 from .runner import Runner
-from .services import BrowserConnectionError, browser_options, verify_browser_route
+from .services import BrowserConnectionError, verify_browser_route
 from .subscriptions import collect
 from .util import atomic_json, error_kind
 
@@ -32,12 +33,9 @@ async def login(cfg, args, confirm=None, progress=print):
         identity = await verify(proxy, cfg["timeout"], retries=cfg["retries"])
         if not identity["verified"]:
             raise ValueError("VPN identity could not be verified")
-        progress("VPN подтверждён. Проверяем подключение Chromium…")
+        progress("VPN подтверждён. Открываем браузер для ручного входа…")
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(**browser_options(proxy, headless=False, executable=cfg.get("browser_executable")))
-            try:
-                context = await browser.new_context(service_workers="block")
-                page = await context.new_page()
+            async with manual_browser(pw, proxy, cfg["timeout"], cfg.get("browser_executable"), progress) as (context, page):
                 await page.set_content("<title>ProxyTester — подключение</title><h2>Подключаем браузер через выбранный VPN…</h2><p>Проверяем внешний IP. При ошибке причина появится в главном окне ProxyTester.</p>")
                 trace = await verify_browser_route(page, identity, cfg["timeout"])
                 progress("Маршрут Chromium подтверждён: " + trace["ip"] + ". Открываем сервис…")
@@ -51,8 +49,6 @@ async def login(cfg, args, confirm=None, progress=print):
                 else:
                     await asyncio.to_thread(input, "Когда вход завершён, нажмите Enter здесь… ")
                 atomic_json(args.session, await context.storage_state(indexed_db=True))
-            finally:
-                await browser.close()
     config_path = Path(args.config)
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     saved["storage_state"] = str(Path(args.session).resolve())
