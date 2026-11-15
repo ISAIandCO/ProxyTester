@@ -9,9 +9,8 @@ Gemini и ваши сайты, измеряет задержку и скорос
 
 ## Запуск на Windows
 
-**Версия 1.1.2 с GUI и входом через Brave / Chrome / Edge.**
-Готовые Windows x64 portable сборки (≈436 MB) — в
-[Actions](https://github.com/ISAIandCO/ProxyTester/actions/workflows/windows.yml), artifact **ProxyTester-windows-x64**.
+Готовая сборка **1.1.2 с GUI и входом через Brave / Chrome / Edge**:
+[Windows x64 portable, ≈436 MB](https://github.com/ISAIandCO/ProxyTester/actions/runs/43752125539/artifacts/14176464342).
 Результаты проверки и ограничения — [VALIDATION.md](VALIDATION.md). Артефакты
 Actions хранятся 30 дней; новую сборку можно получить вручную по ссылке ниже.
 
