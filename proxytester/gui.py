@@ -324,12 +324,15 @@ class App:
         self.progress_text.pack(anchor="w")
         self.results = self.table(frame, (("name", "Сервер", 280), ("protocol", "Протокол", 90), ("status", "Состояние", 180),
                                          ("vpn", "IP VPN", 150), ("warp", "IP WARP", 150)), height=8)
+        self.results.bind("<Double-1>", lambda e: self.show_details())
+        self.results.bind("<Return>", lambda e: self.show_details())
         row = ttk.Frame(frame)
         row.pack(fill="x")
         self.auth_button = ttk.Button(row, text="Войти через выбранный сервер…", command=self.authorize)
         self.auth_button.pack(side="left")
         self.session_button = ttk.Button(row, text="Сохранить сессию", command=self.finish_auth, state="disabled")
         self.session_button.pack(side="left", padx=8)
+        ttk.Button(row, text="Подробности сервера…", command=self.show_details).pack(side="right")
         ttk.Label(frame, text="Отчёт HTML", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(12, 4))
         row = ttk.Frame(frame)
         row.pack(fill="x")
@@ -557,6 +560,7 @@ class App:
     def display_report(self, report):
         self.last_report = report
         selected = set(self.results.selection())
+        scroll = self.results.yview()[0]
         self.results.delete(*self.results.get_children())
         results = report["results"]
         for item in results:
@@ -569,6 +573,7 @@ class App:
                 item.get("vpn", {}).get("identity", {}).get("ip", "—"), item.get("warp", {}).get("identity", {}).get("ip", "—")))
             if item["id"] in selected:
                 self.results.selection_add(item["id"])
+        self.results.yview_moveto(scroll)
         done = sum(bool(r.get("finished")) or r.get("status") in ("invalid", "not_selected", "cancelled") for r in results)
         self.progress.configure(maximum=max(1, len(results)), value=done)
         self.progress_text.configure(text=f"Обработано {done} из {len(results)} · VPN подтверждён: {sum(bool(r.get('vpn', {}).get('identity', {}).get('verified')) for r in results)}")
@@ -624,6 +629,21 @@ class App:
             webbrowser.open(path.as_uri())
         else:
             self.status.set("Отчёт ещё не создан. Запустите проверку.")
+
+    def show_details(self):
+        selected = self.results.selection()
+        if not selected or not self.last_report:
+            return
+        row = next((r for r in self.last_report["results"] if r["id"] == selected[0]), None)
+        if row:
+            window = tk.Toplevel(self.root)
+            window.title("Подробности: " + row["name"])
+            window.geometry("850x500")
+            text = ScrolledText(window, font=("Consolas", 10), wrap="word")
+            text.pack(fill="both", expand=True, padx=12, pady=12)
+            text.insert("1.0", json.dumps(row, ensure_ascii=False, indent=2))
+            text.configure(state="disabled")
+            return window
 
     def close(self):
         if self.busy:

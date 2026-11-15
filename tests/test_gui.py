@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import json
 import os
 import queue
@@ -74,6 +75,10 @@ class NativeGuiTests(unittest.TestCase):
             self.pump(lambda: not self.app.worker.running)
         if self.root.winfo_exists():
             self.app.destroy()
+        # Destroyed Tcl interpreters must be finalized on their creating thread,
+        # before the next test starts an allocating asyncio worker.
+        self.app = self.root = None
+        gc.collect()
         self.temp.cleanup()
 
     def pump(self, condition, seconds=10):
@@ -153,6 +158,11 @@ class NativeGuiTests(unittest.TestCase):
         self.assertTrue(all(r["status"] == "invalid" for r in report["results"]))
         self.assertEqual(float(self.app.progress["value"]), 2)
         self.assertEqual(str(self.app.stop_button["state"]), "disabled")
+        self.app.results.selection_set(report["results"][0]["id"])
+        detail = self.app.show_details()
+        self.assertIsNotNone(detail)
+        self.assertIn("Unsupported", detail.title())
+        detail.destroy()
 
     def test_selected_mode_and_stop_use_existing_runner_contract(self):
         fixture = Path(self.temp.name) / "nodes.txt"
