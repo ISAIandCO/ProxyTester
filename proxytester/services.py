@@ -70,7 +70,7 @@ def browser_options(proxy, headless=True, executable=None):
     options = {"headless": headless, "proxy": {"server": proxy, "bypass": "<-loopback>"},
             "args": ["--disable-quic", "--disable-background-networking", "--disable-component-update",
                      "--disable-sync", "--no-first-run", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-                     "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost"]}
+                     "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost"]}
     if executable:
         options["executable_path"] = executable
     return options
@@ -131,8 +131,9 @@ async def browser_checks(proxy, services, config, identity):
             finally:
                 await browser.close()
     except (Error, OSError, ValueError) as e:
+        reason = "Browser exit identity mismatch" if isinstance(e, ValueError) and str(e) == "Browser exit identity mismatch" else error_kind(e)
         for service in services:
-            results.setdefault(service["name"], {"status": "unconfirmed", "reason": "Browser unavailable or identity unverified: " + error_kind(e),
+            results.setdefault(service["name"], {"status": "unconfirmed", "reason": "Browser unavailable or identity unverified: " + reason,
                                                  "cloudflare": "unknown", "method": "chromium"})
     return results
 

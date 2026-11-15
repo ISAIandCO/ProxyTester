@@ -137,6 +137,8 @@ def main():
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as e:
         # Config errors are controlled messages; network exceptions can contain secrets.
         message = str(e) if type(e) in (ValueError, RuntimeError) and "http" not in str(e).lower() else error_kind(e)
+        if isinstance(e, json.JSONDecodeError):
+            message = f"Некорректный JSON: строка {e.lineno}, столбец {e.colno}"
         print("Ошибка: " + message, file=sys.stderr)
         return 1
     return 0

@@ -28,7 +28,7 @@ from proxytester.cores import CoreProcess, Route, binary, free_port
 from proxytester.network import client, latency, speed, verify
 from proxytester.runner import Runner
 from proxytester.services import http_check, browser_checks
-from proxytester.subscriptions import parse
+from proxytester.subscriptions import collect, parse
 from proxytester.warp import WarpCache, WarpError
 
 CORES = Path(os.environ.get("PROXYTESTER_CORES", "cores")).resolve()
@@ -58,7 +58,26 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.stack = AsyncExitStack()
         await self.stack.__aenter__()
+        self.logfile = None
+        if os.environ.get("PROXYTESTER_TEST_LOGS") == "1":
+            # Only synthetic local credentials are used by this suite. Production logs stay off.
+            self.logfile = open(Path(self.temp.name) / "cores.log", "w+", encoding="utf-8")
+            original_exec = asyncio.create_subprocess_exec
+            async def logged_exec(*args, **kwargs):
+                if Path(str(args[0])).stem in ("xray", "sing-box") and "-c" in args:
+                    path = Path(args[args.index("-c") + 1])
+                    cfg = json.loads(path.read_text(encoding="utf-8"))
+                    cfg["log"] = {"loglevel": "debug"} if Path(str(args[0])).stem == "xray" else {"level": "debug"}
+                    path.write_text(json.dumps(cfg), encoding="utf-8")
+                    kwargs.update(stdout=self.logfile, stderr=asyncio.subprocess.STDOUT)
+                return await original_exec(*args, **kwargs)
+            patcher = patch("asyncio.create_subprocess_exec", logged_exec)
+            patcher.start()
+            self.stack.callback(patcher.stop)
         self.requests = []
+        self.received_headers = []
+        self.subscription_status = 200
+        self.subscription = f"vless://{UUID}@example.com:443?security=none#Test".encode()
         self.reg_status = 200
         self.reg_body = {}
         self.origin = await asyncio.start_server(self.handle, "127.0.0.1", 0)
@@ -71,6 +90,13 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.stack.__aexit__(None, None, None)
+        if self.logfile:
+            self.logfile.flush()
+            self.logfile.seek(0)
+            result = self._outcome.result
+            if any(test is self for test, _ in result.errors + result.failures):
+                print("\nLOCAL FIXTURE CORE LOGS:\n" + self.logfile.read()[-14000:])
+            self.logfile.close()
         self.origin.close()
         await self.origin.wait_closed()
         self.temp.cleanup()
@@ -83,12 +109,15 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             headers = dict(line.split(": ", 1) for line in lines[1:] if ": " in line)
             body = await reader.readexactly(int(headers.get("Content-Length", "0")))
             self.requests.append((method, path, body))
+            self.received_headers.append({k.lower(): v for k, v in headers.items()})
             status, content_type = 200, "text/html"
             if path.startswith("/data"):
                 from urllib.parse import parse_qs, urlsplit
                 payload = b"x" * int(parse_qs(urlsplit(path).query)["bytes"][0])
             elif path.startswith("/reg"):
                 status, payload, content_type = self.reg_status, json.dumps(self.reg_body).encode(), "application/json"
+            elif path.startswith("/subscription"):
+                status, payload = self.subscription_status, self.subscription
             elif path == "/trace":
                 payload = b"ip=203.0.113.9\nwarp=off\nloc=DE\ncolo=LOCAL\n"
             elif path == "/ip":
@@ -160,21 +189,29 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         config = {"log": {"disabled": True}, "endpoints": [{"type": "wireguard", "tag": "wg", "system": False,
                   "listen_port": port, "address": ["10.88.0.1/32"], "private_key": server_private,
                   "peers": [{"public_key": client_public, "allowed_ips": ["10.88.0.2/32"]}]}],
-                  "outbounds": [{"type": "direct", "tag": "direct"}], "route": {"final": "direct"}}
+                  "outbounds": [{"type": "direct", "tag": "direct"}], "route": {"final": "direct",
+                    "rules": [{"inbound": ["wg"], "action": "route", "outbound": "direct", "override_address": "127.0.0.1"}]}}
         server = await self.stack.enter_async_context(CoreProcess(binary(CORES, "sing-box"), "sing-box", config, None, 3))
         return {"private_key": client_private, "peer_key": server_public, "addresses": ["10.88.0.2/32"],
                 "endpoint_host": "127.0.0.1", "endpoint_port": port, "reserved": [0, 0, 0]}, server
 
     async def assert_transfer(self, node, cascade=False):
         route = Route(CORES, node, 3)
+        target_url = self.url
+        cfg = deepcopy(self.cfg)
         async with route.base() as proxy:
             if cascade:
                 wg, _ = await self.wireguard()
                 proxy = await self.stack.enter_async_context(route.cascade(wg))
+                # Loopback destinations stay inside gVisor's own stack. Use a routed test IP;
+                # the fixture WireGuard server alone rewrites it to our HTTP origin.
+                target_url = self.url.replace("127.0.0.1", "198.18.0.99")
+                cfg["download_url"] = cfg["download_url"].replace("127.0.0.1", "198.18.0.99")
+                cfg["upload_url"] = cfg["upload_url"].replace("127.0.0.1", "198.18.0.99")
             async with client(proxy, 5) as session:
-                response = await session.get(self.url + "/ok")
+                response = await session.get(target_url + "/ok")
                 self.assertEqual(response.text, "WORKING_APP")
-            result = await speed(proxy, self.cfg)
+            result = await speed(proxy, cfg)
             self.assertFalse(result["errors"], result)
             self.assertGreater(result["download_mbps"]["median"], 0)
             self.assertGreater(result["upload_mbps"]["median"], 0)
@@ -256,6 +293,22 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                     await cache.get(node, proxy, {"verified": True, "ip": "203.0.113.9"}, self.cfg)
             self.assertEqual(sum(r[1] == "/reg" for r in self.requests), 1)
 
+    async def test_subscription_hwid_header_query_bearer_and_http_error(self):
+        for mode in ("header", "query", "bearer"):
+            self.cfg["subscriptions"] = [{"url": self.url + "/subscription", "hwid": "FIXTURE-HWID", "hwid_mode": mode, "hwid_name": "x-hwid"}]
+            nodes = await collect(self.cfg)
+            self.assertEqual(nodes[0].protocol, "vless")
+            if mode == "header":
+                self.assertEqual(self.received_headers[-1]["x-hwid"], "FIXTURE-HWID")
+            elif mode == "query":
+                self.assertIn("x-hwid=FIXTURE-HWID", self.requests[-1][1])
+            else:
+                self.assertEqual(self.received_headers[-1]["authorization"], "Bearer FIXTURE-HWID")
+            self.assertNotIn("FIXTURE-HWID", json.dumps(nodes[0].public()))
+        self.subscription_status = 403
+        nodes = await collect(self.cfg)
+        self.assertIn("HTTP 403", nodes[0].issue)
+
     async def test_measurements_and_identity(self):
         node, _ = await self.vless()
         async with Route(CORES, node, 3).base() as proxy:
@@ -282,6 +335,52 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             await runner.run(resume=True)
             self.assertEqual(count, len(self.requests))
         self.assertTrue((Path(self.temp.name) / "report.csv").exists())
+
+    async def test_parallel_routes_are_isolated(self):
+        first, first_server = await self.vless()
+        second, _ = await self.vless("xhttp")
+        async with Route(CORES, first, 3).base() as a, Route(CORES, second, 3).base() as b:
+            self.assertNotEqual(a, b)
+            await first_server.__aexit__(None, None, None)
+            async with client(a, 1) as session:
+                with self.assertRaises(httpx.HTTPError):
+                    await session.get(self.url + "/ok")
+            async with client(b, 3) as session:
+                self.assertEqual((await session.get(self.url + "/ok")).text, "WORKING_APP")
+
+    async def test_cascade_has_no_direct_fallback(self):
+        node, server = await self.vless()
+        wg, _ = await self.wireguard()
+        route = Route(CORES, node, 3)
+        url = self.url.replace("127.0.0.1", "198.18.0.99")
+        async with route.base(), route.cascade(wg) as proxy:
+            async with client(proxy, 3) as session:
+                self.assertEqual((await session.get(url + "/ok")).text, "WORKING_APP")
+            count = len(self.requests)
+            await server.__aexit__(None, None, None)
+            async with client(proxy, 1) as session:
+                with self.assertRaises(httpx.HTTPError):
+                    await session.get(url + "/must-not-go-direct")
+            self.assertEqual(count, len(self.requests))
+
+    async def test_runner_interruption_saves_partial_report(self):
+        node, _ = await self.vless()
+        file = Path(self.temp.name) / "subscription.json"
+        file.write_text(json.dumps(node.outbound), encoding="utf-8")
+        self.cfg["files"] = [str(file)]
+        runner = Runner(self.cfg, CORES, Path(self.temp.name) / "data", Path(self.temp.name) / "report.html")
+        job = asyncio.create_task(runner.run())
+        for _ in range(100):
+            if runner.report and runner.report["results"][0]["status"] == "running":
+                break
+            await asyncio.sleep(.02)
+        job.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await job
+        saved = json.loads((Path(self.temp.name) / "data" / "run.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["results"][0]["status"], "cancelled")
+        self.assertFalse(saved["completed"])
+        self.assertTrue((Path(self.temp.name) / "report.html").exists())
 
     async def test_cancel_releases_processes_and_saves(self):
         node, _ = await self.vless()
@@ -313,7 +412,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         services = [{"name": "JSRegion", "url": self.url + "/js"}, {"name": "JSReady", "url": self.url + "/ready", "success_selector": "#ready"}]
         async with Route(CORES, node, 3).base() as proxy:
             with patch("proxytester.services.TRACE_URL", self.url + "/trace"):
-                result = await browser_checks(proxy, services, self.cfg, {"ip": "203.0.113.9", "warp": "off"})
+                with patch("proxytester.services.error_kind", lambda e: str(e)):
+                    result = await browser_checks(proxy, services, self.cfg, {"ip": "203.0.113.9", "warp": "off"})
         self.assertEqual(result["JSRegion"]["status"], "regional_block", result)
         self.assertEqual(result["JSReady"]["status"], "available", result)
 

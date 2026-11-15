@@ -46,9 +46,13 @@ def error_kind(exc):
     lower = (name + " " + str(exc)).lower()
     if "timeout" in lower:
         return "timeout"
-    if "certificate" in lower or "ssl" in lower or "tls" in lower:
+    if "executable doesn't exist" in lower:
+        return "browser_missing (run setup)"
+    if "proxy_connection" in lower or "tunnel_connection" in lower:
+        return "proxy_connection_failed"
+    if "certificate" in lower or "ssl" in lower or "tls" in lower or "err_cert" in lower:
         return "tls_error"
-    if "name resolution" in lower or "getaddrinfo" in lower or "dns" in lower:
+    if "name resolution" in lower or "getaddrinfo" in lower or "dns" in lower or "name_not_resolved" in lower:
         return "dns_error"
     return safe_name(name)
 
