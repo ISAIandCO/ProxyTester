@@ -9,6 +9,10 @@ Gemini и ваши сайты, измеряет задержку и скорос
 
 ## Запуск на Windows
 
+Готовая проверенная сборка **1.0.0**: [Windows x64 portable, ≈429 MB](https://github.com/ISAIandCO/ProxyTester/actions/runs/43740927155/artifacts/14171489815).
+Результаты проверки и ограничения — [VALIDATION.md](VALIDATION.md). Артефакты
+Actions хранятся 30 дней; новую сборку можно получить вручную по ссылке ниже.
+
 1. Откройте [Actions → Test and build Windows portable](https://github.com/ISAIandCO/ProxyTester/actions/workflows/windows.yml),
    выберите успешную сборку и скачайте artifact **ProxyTester-windows-x64**.
    Внутри него находится `ProxyTester-windows-x64.zip` и контрольная сумма.
@@ -135,6 +139,8 @@ HTTP-режиме). Без такого признака сайт остаётс
 Cloudflare различается как `challenge`, `captcha`, `block`, `clear_observed`,
 `not_observed`, `http_error`, `unknown`; обычный встроенный Turnstile сам по себе
 не считается срабатыванием защиты. CAPTCHA автоматически не решаются.
+Автоматизированный Chromium может получать проверки чаще обычного браузера:
+отчёт фиксирует наблюдение на конкретном ресурсе, а не общую репутацию IP.
 
 ### Авторизованная сессия
 
