@@ -214,6 +214,8 @@ class App:
             self.config_buttons.append(button)
         self.config_label = ttk.Label(outer, text=str(self.path.resolve()), foreground="#52637a")
         self.config_label.pack(anchor="w", pady=(0, 10))
+        self.status_label = ttk.Label(outer, textvariable=self.status, wraplength=950)
+        self.status_label.pack(side="bottom", fill="x", pady=(12, 0))
         self.book = ttk.Notebook(outer)
         self.book.pack(fill="both", expand=True)
         self.tabs = [ttk.Frame(self.book, padding=14) for _ in range(4)]
@@ -224,7 +226,6 @@ class App:
         self.build_settings()
         self.build_run()
         self.fill()
-        ttk.Label(outer, textvariable=self.status, wraplength=1050).pack(fill="x", pady=(12, 0))
         self.after_id = self.root.after(100, self.poll)
         checkpoint = self.data / "run.json"
         if checkpoint.exists():

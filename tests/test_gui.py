@@ -217,6 +217,8 @@ class NativeGuiTests(unittest.TestCase):
             self.app.book.select(index)
             self.root.update()
             self.assertTrue(self.app.tabs[index].winfo_viewable())
+            self.assertTrue(self.app.status_label.winfo_viewable())
+            self.assertGreater(self.app.status_label.winfo_height(), 10)
             if sys.platform == "win32" and os.environ.get("PROXYTESTER_GUI_QA") == "1":
                 from gui_capture import capture
                 capture(self.root, Path("data/gui-qa") / (name + ".bmp"))
