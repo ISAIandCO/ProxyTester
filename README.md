@@ -9,7 +9,7 @@ Gemini и ваши сайты, измеряет задержку и скорос
 
 ## Запуск на Windows
 
-Готовые Windows-сборки доступны в [Actions](https://github.com/ISAIandCO/ProxyTester/actions/workflows/windows.yml).
+Готовая сборка **1.1.0 с GUI**: [Windows x64 portable, ≈436 MB](https://github.com/ISAIandCO/ProxyTester/actions/runs/43743815481/artifacts/14172959971).
 Результаты проверки и ограничения — [VALIDATION.md](VALIDATION.md). Артефакты
 Actions хранятся 30 дней; новую сборку можно получить вручную по ссылке ниже.
 
