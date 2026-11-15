@@ -481,7 +481,8 @@ class App:
         self.run_mode.configure(state="disabled" if busy else "readonly")
         self.stop_button.configure(state="normal" if busy else "disabled")
         if not busy:
-            self.progress.stop()
+            if str(self.progress["mode"]) == "indeterminate":
+                self.progress.stop()
             self.progress.configure(mode="determinate")
             if self.operation != "run":
                 self.progress.configure(value=0)

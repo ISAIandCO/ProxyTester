@@ -480,6 +480,51 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                         await browser.close()
         self.assertTrue(any(r[1] == "/ready" for r in self.requests))
 
+    @unittest.skipUnless(os.environ.get("PROXYTESTER_BROWSER_TESTS") == "1", "Requires Chromium")
+    async def test_login_opens_https_service_through_selected_vpn(self):
+        from proxytester.cli import login
+        from proxytester.services import browser_options
+        from proxytester.util import atomic_json
+        from types import SimpleNamespace
+        certfile, keyfile = certificate(self.temp.name)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile, keyfile)
+        origin = await asyncio.start_server(self.handle, "127.0.0.1", 0, ssl=context)
+        self.stack.callback(origin.close)
+        port = origin.sockets[0].getsockname()[1]
+        cert = x509.load_pem_x509_certificate(Path(certfile).read_bytes())
+        spki = cert.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        pin = base64.b64encode(hashlib.sha256(spki).digest()).decode()
+        node, _ = await self.vless(redirect=f"127.0.0.1:{port}")
+        native = {**node.outbound, "tag": node.name}
+        source = Path(self.temp.name) / "login-node.json"
+        atomic_json(source, native)
+        node_id = parse(json.dumps(native))[0].id
+        url = f"https://service.proxytester.invalid:{port}"
+        cfg = {**self.cfg, "files": [str(source)], "services": [{"name": "Fixture", "url": url + "/ready"}], "timeout": 5}
+        config_path = Path(self.temp.name) / "config.json"
+        session_path = Path(self.temp.name) / "session.json"
+        atomic_json(config_path, cfg)
+        def options(*args, **kwargs):
+            value = browser_options(*args, **kwargs)
+            value["args"].append("--ignore-certificate-errors-spki-list=" + pin)
+            return value
+        async def verified(*args, **kwargs):
+            return {"verified": True, "ip": "203.0.113.9", "warp": "off"}
+        confirmed = False
+        async def confirm():
+            nonlocal confirmed
+            self.assertTrue(any(r[1] == "/ready" for r in self.requests))
+            confirmed = True
+        progress = []
+        args = SimpleNamespace(node=node_id, cores=str(CORES), config=str(config_path), session=str(session_path))
+        with patch("proxytester.cli.verify", verified), patch("proxytester.cli.browser_options", options), patch("proxytester.services.TRACE_URL", url + "/trace"):
+            await login(cfg, args, confirm=confirm, progress=progress.append)
+        self.assertTrue(confirmed)
+        self.assertTrue(session_path.exists())
+        self.assertEqual(json.loads(config_path.read_text(encoding="utf-8"))["storage_state"], str(session_path.resolve()))
+        self.assertTrue(any("203.0.113.9" in text for text in progress))
+
     @unittest.skipUnless(os.environ.get("PROXYTESTER_LIVE_SMOKE") == "1", "Optional public HTTPS diagnostics")
     async def test_public_google_browser_diagnostics(self):
         from proxytester.services import browser_options
@@ -503,12 +548,12 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 with patch("proxytester.services.error_kind", lambda e: str(e)):
                     result = await browser_checks(proxy, services, self.cfg, identity)
                 print("PUBLIC HTTPS browser:", json.dumps(result, ensure_ascii=False))
-                for mode in ("original", "no_resolver_rule", "default_args"):
-                    options = browser_options(proxy)
-                    if mode == "no_resolver_rule":
-                        options["args"] = [arg for arg in options["args"] if not arg.startswith("--host-resolver-rules=")]
-                    elif mode == "default_args":
-                        options["args"] = []
+                for mode in ("original", "http1", "http1_headed"):
+                    options = browser_options(proxy, headless=mode != "http1_headed")
+                    if mode != "original":
+                        options["args"].append("--disable-http2")
+                    netlog = Path(self.temp.name) / (mode + ".netlog.json")
+                    options["args"].append("--log-net-log=" + str(netlog))
                     async with async_playwright() as pw:
                         browser = await pw.chromium.launch(**options)
                         try:
@@ -528,6 +573,15 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                             print("PUBLIC CHROME mode:", mode, "error:", error, "url:", page.url.split("?")[0], "state:", state, "failures:", failures[-10:], "responses:", responses[-10:], flush=True)
                         finally:
                             await browser.close()
+                    if netlog.exists():
+                        try:
+                            info = json.loads(netlog.read_text(encoding="utf-8"))
+                            names = {v: k for k, v in info["constants"]["logEventTypes"].items()}
+                            events = [{"name": names.get(e["type"]), "phase": e.get("phase"), "net_error": e.get("params", {}).get("net_error")} for e in info["events"]
+                                      if names.get(e["type"]) in ("SSL_CONNECT", "HTTP2_SESSION", "HTTP2_SESSION_SEND_HEADERS", "HTTP2_SESSION_RECV_HEADERS", "HTTP_PROXY_CONNECT_JOB_CONNECT", "HTTP_TRANSACTION_TUNNEL_SEND_REQUEST", "HTTP_TRANSACTION_TUNNEL_READ_HEADERS")]
+                            print("PUBLIC NETLOG:", mode, events[-45:], flush=True)
+                        except (ValueError, KeyError):
+                            print("PUBLIC NETLOG incomplete:", mode)
                 if self.logfile:
                     self.logfile.flush()
                     self.logfile.seek(0)
