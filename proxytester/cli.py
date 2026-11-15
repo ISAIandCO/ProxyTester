@@ -12,7 +12,7 @@ from .cores import install, Route
 from .network import verify
 from .report import write_report
 from .runner import Runner
-from .services import browser_options
+from .services import BrowserConnectionError, browser_options, verify_browser_route
 from .subscriptions import collect
 from .util import atomic_json, error_kind
 
@@ -21,22 +21,30 @@ def root():
     return Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path.cwd()
 
 
-async def login(cfg, args, confirm=None):
-    from playwright.async_api import async_playwright
+async def login(cfg, args, confirm=None, progress=print):
+    from playwright.async_api import async_playwright, Error
     nodes = await collect(cfg)
     node = next((n for n in nodes if n.id == args.node and not n.issue), None)
     if not node:
         raise ValueError("Unknown/invalid node ID; use list")
+    progress("Подключение к выбранному VPN-серверу…")
     async with Route(args.cores, node, cfg["timeout"]).base() as proxy:
         identity = await verify(proxy, cfg["timeout"], retries=cfg["retries"])
         if not identity["verified"]:
             raise ValueError("VPN identity could not be verified")
+        progress("VPN подтверждён. Проверяем подключение Chromium…")
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(**browser_options(proxy, headless=False, executable=cfg.get("browser_executable")))
             try:
                 context = await browser.new_context(service_workers="block")
                 page = await context.new_page()
-                await page.goto(cfg["services"][0]["url"], wait_until="domcontentloaded", timeout=cfg["timeout"] * 1000)
+                await page.set_content("<title>ProxyTester — подключение</title><h2>Подключаем браузер через выбранный VPN…</h2><p>Проверяем внешний IP. При ошибке причина появится в главном окне ProxyTester.</p>")
+                trace = await verify_browser_route(page, identity, cfg["timeout"])
+                progress("Маршрут Chromium подтверждён: " + trace["ip"] + ". Открываем сервис…")
+                try:
+                    await page.goto(cfg["services"][0]["url"], wait_until="domcontentloaded", timeout=cfg["timeout"] * 1000)
+                except Error as exc:
+                    raise BrowserConnectionError("Chromium: сервис не загрузился через выбранный VPN — " + error_kind(exc)) from exc
                 print("Войдите в сервис в открытом браузере. CAPTCHA проходите вручную.")
                 if confirm:
                     await confirm()
@@ -146,6 +154,8 @@ def main():
         message = str(e) if type(e) in (ValueError, RuntimeError) and "http" not in str(e).lower() else error_kind(e)
         if isinstance(e, json.JSONDecodeError):
             message = f"Некорректный JSON: строка {e.lineno}, столбец {e.colno}"
+        if isinstance(e, BrowserConnectionError):
+            message = str(e)
         print("Ошибка: " + message, file=sys.stderr)
         return 1
     return 0

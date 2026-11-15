@@ -15,7 +15,7 @@ from proxytester.report import write_report
 from proxytester.runner import failed
 from proxytester.services import browser_options, classify, cloudflare
 from proxytester.subscriptions import parse
-from proxytester.util import public_url
+from proxytester.util import error_kind, public_url
 from proxytester.warp import decode_registration, valid_identity, WarpError
 
 UUID = "11111111-1111-4111-8111-111111111111"
@@ -214,6 +214,14 @@ class WarpTests(unittest.TestCase):
 
 
 class OutputTests(unittest.TestCase):
+    def test_chromium_error_code_is_preserved_without_secret_url(self):
+        exc = RuntimeError("Page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://example.com/?token=SECRET")
+        self.assertEqual(error_kind(exc), "ERR_TUNNEL_CONNECTION_FAILED")
+
+    def test_invalid_selector_is_not_reported_as_network_failure(self):
+        exc = RuntimeError('Locator.count: Unexpected token while parsing css selector "button["')
+        self.assertEqual(error_kind(exc), "invalid_selector")
+
     def test_html_script_injection_and_csv_formula(self):
         r = {"services": ["NotebookLM"], "results": [{"name": '=HYPERLINK("evil")</script><script>alert(1)</script>', "id": "one", "country": "DE", "protocol": "vless", "status": "invalid"}]}
         with tempfile.TemporaryDirectory() as d:

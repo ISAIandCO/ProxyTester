@@ -47,6 +47,10 @@ def error_kind(exc):
     code = re.search(r"\bnet::(ERR_[A-Z0-9_]+)\b", str(exc))
     if code:
         return code[1]
+    if "selector" in lower and any(marker in lower for marker in ("while parsing", "not a valid selector", "unknown engine", "unexpected token")):
+        return "invalid_selector"
+    if "target page, context or browser has been closed" in lower:
+        return "browser_closed"
     if "timeout" in lower:
         return "timeout"
     if "executable doesn't exist" in lower:

@@ -12,6 +12,26 @@ REGION = ("not available in your country", "not available in your region", "unsu
           "недоступен в вашем регионе", "недоступно в вашем регионе")
 
 
+class BrowserConnectionError(RuntimeError):
+    """Only controlled stage descriptions and sanitized codes, never raw browser logs."""
+
+
+async def verify_browser_route(page, identity, timeout):
+    from playwright.async_api import Error
+    try:
+        response = await page.goto(TRACE_URL, wait_until="domcontentloaded", timeout=timeout * 1000)
+        if not response or response.status != 200:
+            raise BrowserConnectionError("Chromium: проверка маршрута вернула ответ " + str(response.status if response else 0))
+        trace = parse_trace(await response.text())
+    except Error as exc:
+        raise BrowserConnectionError("Chromium: ошибка проверки маршрута — " + error_kind(exc)) from exc
+    except ValueError as exc:
+        raise BrowserConnectionError("Chromium: ответ проверки внешнего IP не распознан") from exc
+    if trace["ip"] != identity["ip"] or trace["warp"] != identity["warp"]:
+        raise BrowserConnectionError("Chromium: внешний IP или состояние WARP отличается от проверяемого маршрута")
+    return trace
+
+
 def cloudflare(status, headers, body):
     h = {str(k).lower(): str(v).lower() for k, v in headers.items()}
     text = body.lower()
@@ -94,12 +114,7 @@ async def browser_checks(proxy, services, config, identity):
                 page = await context.new_page()
                 page.set_default_timeout(config["timeout"] * 1000)
                 # Same browser instance/proxy as the service checks, before reading an authenticated session.
-                response = await page.goto(TRACE_URL, wait_until="domcontentloaded")
-                if not response:
-                    raise ValueError("Browser exit identity mismatch")
-                trace = parse_trace(await response.text())
-                if not response or response.status != 200 or trace["ip"] != identity["ip"] or trace["warp"] != identity["warp"]:
-                    raise ValueError("Browser exit identity mismatch")
+                await verify_browser_route(page, identity, config["timeout"])
                 for service in services:
                     redirects, blocked_responses = [], []
                     stage = "navigation"
@@ -140,11 +155,11 @@ async def browser_checks(proxy, services, config, identity):
                 await context.close()
             finally:
                 await browser.close()
-    except (Error, OSError, ValueError) as e:
-        reason = "Browser exit identity mismatch" if isinstance(e, ValueError) and str(e) == "Browser exit identity mismatch" else error_kind(e)
+    except (Error, OSError, ValueError, BrowserConnectionError) as e:
+        reason = str(e) if isinstance(e, BrowserConnectionError) else error_kind(e)
         for service in services:
             results.setdefault(service["name"], {"status": "unconfirmed", "reason": "Browser unavailable or identity unverified: " + reason,
-                                                 "cloudflare": "unknown", "method": "chromium"})
+                                                 "cloudflare": "unknown", "method": "chromium", "stage": "browser_identity"})
     return results
 
 

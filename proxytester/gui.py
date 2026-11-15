@@ -20,6 +20,7 @@ from . import __version__
 from .config import DEFAULT, load, validate
 from .cores import install
 from .runner import Runner
+from .services import BrowserConnectionError
 from .subscriptions import collect
 from .util import atomic_json, error_kind
 
@@ -34,6 +35,8 @@ NUMBERS = (("parallel", "Параллельных серверов", 1), ("timeo
 
 
 def describe_error(exc):
+    if isinstance(exc, BrowserConnectionError):
+        return str(exc)
     if isinstance(exc, json.JSONDecodeError):
         return f"Некорректный JSON: строка {exc.lineno}, столбец {exc.colno}"
     if type(exc) in (ValueError, RuntimeError) and "http" not in str(exc).lower():
@@ -478,6 +481,10 @@ class App:
         self.run_mode.configure(state="disabled" if busy else "readonly")
         self.stop_button.configure(state="normal" if busy else "disabled")
         if not busy:
+            self.progress.stop()
+            self.progress.configure(mode="determinate")
+            if self.operation != "run":
+                self.progress.configure(value=0)
             self.session_button.configure(state="disabled")
 
     def begin(self, kind, operation):
@@ -486,6 +493,8 @@ class App:
         self.operation = kind
         self.book.select(3)
         self.set_busy(True)
+        self.progress.configure(mode="indeterminate")
+        self.progress.start(15)
         self.status.set("Подготовка…")
         self.worker.start(operation)
 
@@ -544,7 +553,7 @@ class App:
             async def confirm():
                 self.events.put(("auth_ready", None))
                 await self.auth_event.wait()
-            await login(config, SimpleNamespace(node=selected[0], cores=self.cores, session=str(session), config=str(self.path)), confirm=confirm)
+            await login(config, SimpleNamespace(node=selected[0], cores=self.cores, session=str(session), config=str(self.path)), confirm=confirm, progress=self.log_message)
         self.begin("auth", operation)
 
     def finish_auth(self):
@@ -559,6 +568,8 @@ class App:
             self.status.set("Останавливаем проверку, закрываем соединения и сохраняем результаты…")
 
     def display_report(self, report):
+        self.progress.stop()
+        self.progress.configure(mode="determinate")
         self.last_report = report
         selected = set(self.results.selection())
         scroll = self.results.yview()[0]

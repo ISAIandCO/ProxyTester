@@ -200,7 +200,7 @@ class NativeGuiTests(unittest.TestCase):
         self.app.results.selection_set("one")
         async def prepared(*args):
             pass
-        async def login(config, args, confirm=None):
+        async def login(config, args, confirm=None, progress=None):
             await confirm()
             config["storage_state"] = args.session
             from proxytester.util import atomic_json

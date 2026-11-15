@@ -434,17 +434,20 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_chromium_javascript_and_readiness(self):
         node, _ = await self.vless()
         self.cfg.update(browser=True, browser_settle_ms=300)
-        services = [{"name": "JSRegion", "url": self.url + "/js"}, {"name": "JSReady", "url": self.url + "/ready", "success_selector": "#ready"}]
+        services = [{"name": "JSRegion", "url": self.url + "/js"}, {"name": "JSReady", "url": self.url + "/ready", "success_selector": "#ready"},
+                    {"name": "InvalidCSS", "url": self.url + "/ready", "success_selector": "button["}]
         async with Route(CORES, node, 3).base() as proxy:
             with patch("proxytester.services.TRACE_URL", self.url + "/trace"):
                 with patch("proxytester.services.error_kind", lambda e: str(e)):
                     result = await browser_checks(proxy, services, self.cfg, {"ip": "203.0.113.9", "warp": "off"})
         self.assertEqual(result["JSRegion"]["status"], "regional_block", result)
         self.assertEqual(result["JSReady"]["status"], "available", result)
+        self.assertEqual(result["InvalidCSS"]["status"], "check_error", result)
+        self.assertEqual(result["InvalidCSS"]["stage"], "readiness", result)
 
     @unittest.skipUnless(os.environ.get("PROXYTESTER_BROWSER_TESTS") == "1", "Requires Chromium")
     async def test_chromium_https_domain_through_authenticated_proxy(self):
-        from proxytester.services import browser_options
+        from proxytester.services import browser_options, verify_browser_route
         from playwright.async_api import async_playwright
         certfile, keyfile = certificate(self.temp.name)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -466,9 +469,13 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                     browser = await pw.chromium.launch(**options)
                     try:
                         page = await browser.new_page()
+                        with patch("proxytester.services.TRACE_URL", url + "/trace"):
+                            await verify_browser_route(page, {"ip": "203.0.113.9", "warp": "off"}, 10)
                         response = await page.goto(url + "/ready", wait_until="domcontentloaded", timeout=10000)
                         self.assertEqual(response.status, 200)
                         await page.wait_for_selector("#ready")
+                        self.assertGreater(await page.locator(DEFAULT["services"][0]["success_selector"]).count(), 0)
+                        self.assertEqual(await page.locator(DEFAULT["services"][1]["success_selector"]).count(), 0)
                     finally:
                         await browser.close()
         self.assertTrue(any(r[1] == "/ready" for r in self.requests))
@@ -514,7 +521,11 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                                 error = "none"
                             except Error as exc:
                                 error = str(exc).split("Call log:")[0]
-                            print("PUBLIC CHROME mode:", mode, "error:", error, "url:", page.url.split("?")[0], "state:", await page.evaluate("document.readyState"), "failures:", failures[-10:], "responses:", responses[-10:])
+                            try:
+                                state = await asyncio.wait_for(page.evaluate("document.readyState"), 3)
+                            except (asyncio.TimeoutError, Error):
+                                state = "execution_context_unavailable"
+                            print("PUBLIC CHROME mode:", mode, "error:", error, "url:", page.url.split("?")[0], "state:", state, "failures:", failures[-10:], "responses:", responses[-10:], flush=True)
                         finally:
                             await browser.close()
                 if self.logfile:
