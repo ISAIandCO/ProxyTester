@@ -94,7 +94,10 @@ def browser_options(proxy, headless=True, executable=None):
     if p.username is not None:
         proxy_options.update(username=unquote(p.username), password=unquote(p.password or ""))
     options = {"headless": headless, "proxy": proxy_options,
-            "args": ["--disable-quic", "--disable-background-networking", "--disable-component-update",
+            # Chromium's HTTP/2 session can stall after CONNECT on this authenticated
+            # proxy chain (Google HTTPS reproduced on Windows). Use HTTP/1.1 for
+            # login and checks alike; certificate validation remains enabled.
+            "args": ["--disable-quic", "--disable-http2", "--disable-background-networking", "--disable-component-update",
                      "--disable-sync", "--no-first-run", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
                      "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost"]}
     if executable:
