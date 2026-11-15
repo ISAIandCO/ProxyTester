@@ -26,7 +26,7 @@ def binary(directory, name):
     return Path(directory).resolve() / (name + (".exe" if os.name == "nt" else ""))
 
 
-def install(directory, target=None):
+def install(directory, target=None, progress=print):
     target = target or ("windows" if os.name == "nt" else "linux")
     if platform.machine().lower() not in ("amd64", "x86_64"):
         raise RuntimeError("Only x64 is packaged")
@@ -42,7 +42,7 @@ def install(directory, target=None):
                 continue
         asset = spec[target]
         url = f"https://github.com/{spec['repository']}/releases/download/v{spec['version']}/{asset['asset']}"
-        print(f"Загрузка {name} {spec['version']} ({target})…", flush=True)
+        progress(f"Загрузка {name} {spec['version']} ({target})…")
         with urllib.request.urlopen(url, timeout=90) as response:
             data = response.read(100000000)
         if hashlib.sha256(data).hexdigest() != asset["sha256"]:

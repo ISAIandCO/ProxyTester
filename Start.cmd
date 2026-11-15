@@ -1,6 +1,4 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-ProxyTester.exe
-echo.
-pause
+start "ProxyTester" "%~dp0ProxyTester.exe"

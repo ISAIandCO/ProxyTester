@@ -33,13 +33,14 @@ def failed(row):
 
 
 class Runner:
-    def __init__(self, config, cores, data, output):
+    def __init__(self, config, cores, data, output, on_update=None):
         self.config, self.cores, self.data, self.output = config, cores, Path(data), output
         self.cache = WarpCache(self.data / "warp")
         self.report = {}
         self.tasks = []
         self.save_lock = asyncio.Lock()
         self.completed = 0
+        self.on_update = on_update
 
     async def measurements(self, proxy, result, base=None):
         cfg = self.config
@@ -59,6 +60,7 @@ class Runner:
             result.update(status="invalid", error=node.issue)
             return
         result.update(status="running", started=now(), vpn={}, warp={})
+        await self.save()
         route = Route(self.cores, node, self.config["timeout"])
         try:
             async with route.base() as proxy:
@@ -84,6 +86,8 @@ class Runner:
             self.report["updated"] = now()
             atomic_json(self.data / "run.json", self.report)
             write_report(self.output, self.report)
+            if self.on_update:
+                self.on_update(self.report)
 
     async def run(self, resume=False, retry_failed=False, selected=None):
         nodes = await collect(self.config)

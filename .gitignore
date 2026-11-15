@@ -9,4 +9,5 @@ reports/
 cores/
 config.json
 session*.json
+*.gui.json
 .playwright/

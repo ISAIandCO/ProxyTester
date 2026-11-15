@@ -37,8 +37,12 @@ DEFAULT = {
 
 
 def load(path):
-    result = deepcopy(DEFAULT)
     supplied = json.loads(Path(path).read_text(encoding="utf-8"))
+    return validate(supplied)
+
+
+def validate(supplied):
+    result = deepcopy(DEFAULT)
     if not isinstance(supplied, dict):
         raise ValueError("Settings must be a JSON object")
     result.update(supplied)

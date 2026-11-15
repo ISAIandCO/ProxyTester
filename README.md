@@ -9,7 +9,7 @@ Gemini и ваши сайты, измеряет задержку и скорос
 
 ## Запуск на Windows
 
-Готовая проверенная сборка **1.0.0**: [Windows x64 portable, ≈429 MB](https://github.com/ISAIandCO/ProxyTester/actions/runs/43740927155/artifacts/14171489815).
+Готовые Windows-сборки доступны в [Actions](https://github.com/ISAIandCO/ProxyTester/actions/workflows/windows.yml).
 Результаты проверки и ограничения — [VALIDATION.md](VALIDATION.md). Артефакты
 Actions хранятся 30 дней; новую сборку можно получить вручную по ссылке ниже.
 
@@ -17,10 +17,14 @@ Actions хранятся 30 дней; новую сборку можно пол�
    выберите успешную сборку и скачайте artifact **ProxyTester-windows-x64**.
    Внутри него находится `ProxyTester-windows-x64.zip` и контрольная сумма.
 2. Распакуйте вложенный ZIP целиком в доступную для записи папку.
-3. Откройте `Start.cmd` или `ProxyTester.exe`.
-4. Введите URL подписки, необязательный HWID, параметры проверок. Можно добавить
-   несколько подписок или указать локальный файл. Настройки сохраняются.
-5. Дождитесь окончания. Откроется `reports/report.html`; рядом будут JSON и CSV.
+3. Откройте `ProxyTester.exe` или `Start.cmd` — появится окно приложения.
+4. На вкладке **Подписки** добавьте URL и необязательный HWID либо локальные файлы.
+   На вкладке **Сервисы** можно изменить сайты и признаки их готовности,
+   на вкладке **Параметры** — скорость, WARP, Chromium, объёмы и таймауты.
+5. На вкладке **Запуск** нажмите **Запустить**. Доступны прогресс, остановка,
+   продолжение, повтор ошибок и проверка только выбранных строк.
+6. Дождитесь окончания и откройте отчёт кнопкой или автоматически. Рядом с HTML
+   сохраняются JSON и CSV. Путь отчёта можно изменить в окне.
 
 В переносимой сборке уже есть Python, оба VPN-ядра и Chromium. Устанавливать
 браузер, драйвер TUN, системный VPN или права администратора не требуется.
@@ -37,8 +41,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install .
 python -m proxytester setup
-python -m proxytester configure
-python -m proxytester run --open
+python -m proxytester gui
 ```
 
 Пользователям Windows с ограниченным PowerShell можно выполнять те же команды
@@ -46,7 +49,8 @@ python -m proxytester run --open
 
 ## Настройки
 
-`configure` создаёт **config.json**. Полный пример — [config.example.json](config.example.json).
+Окно сохраняет **config.json** перед запуском и при закрытии; кнопки вверху позволяют
+открыть или сохранить другой файл настроек. `configure` в CLI также создаёт **config.json**. Полный пример — [config.example.json](config.example.json).
 В примере нет действующих подписок: добавьте URL или локальный файл.
 
 ```json
@@ -144,10 +148,15 @@ Cloudflare различается как `challenge`, `captcha`, `block`, `clear
 
 ### Авторизованная сессия
 
+В окне: **Запуск → Загрузить серверы**, выделите один сервер и нажмите
+**Войти через выбранный сервер**. В Chromium войдите вручную, затем в главном
+окне нажмите **Сохранить сессию**. Также можно выбрать готовый файл сессии на
+вкладке **Параметры**. Для консоли используется отдельный `ProxyTesterCLI.exe`:
+
 ```powershell
-ProxyTester.exe list
-ProxyTester.exe login --node NODE_ID
-ProxyTester.exe run --open
+ProxyTesterCLI.exe list
+ProxyTesterCLI.exe login --node NODE_ID
+ProxyTesterCLI.exe run --open
 ```
 
 В открытом браузере войдите в сервис вручную и вернитесь в консоль. Вход
@@ -158,12 +167,20 @@ localStorage и IndexedDB — храните его как пароль. Сер�
 
 ## Повторные проверки и прерывание
 
+В окне выберите режим запуска в списке над таблицей. Для режима
+**Выбранные серверы** сначала загрузите список и выделите строки (Ctrl/Shift).
+Кнопка **Остановить** отменяет async-задачи, дожидается закрытия процессов
+и сохраняет результаты. Закрытие окна во время проверки выполняет ту же остановку.
+При работе из исходников окно само предлагает загрузку отсутствующих компонентов.
+
+Эквивалентные консольные команды:
+
 ```powershell
-ProxyTester.exe run --resume
-ProxyTester.exe run --retry-failed
-ProxyTester.exe list
-ProxyTester.exe run --only ID1,ID2
-ProxyTester.exe report --output reports/recovered.html
+ProxyTesterCLI.exe run --resume
+ProxyTesterCLI.exe run --retry-failed
+ProxyTesterCLI.exe list
+ProxyTesterCLI.exe run --only ID1,ID2
+ProxyTesterCLI.exe report --output reports/recovered.html
 ```
 
 `Ctrl+C` останавливает тесты, закрывает процессы и сохраняет промежуточный
@@ -178,7 +195,7 @@ ProxyTester.exe report --output reports/recovered.html
 Глобальные параметры ставятся **перед командой**:
 
 ```powershell
-ProxyTester.exe --config other.json --data other-data run --output reports/other.html
+ProxyTesterCLI.exe --config other.json --data other-data run --output reports/other.html
 ```
 
 ## Отчёт

@@ -21,7 +21,7 @@ def root():
     return Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path.cwd()
 
 
-async def login(cfg, args):
+async def login(cfg, args, confirm=None):
     from playwright.async_api import async_playwright
     nodes = await collect(cfg)
     node = next((n for n in nodes if n.id == args.node and not n.issue), None)
@@ -38,7 +38,10 @@ async def login(cfg, args):
                 page = await context.new_page()
                 await page.goto(cfg["services"][0]["url"], wait_until="domcontentloaded", timeout=cfg["timeout"] * 1000)
                 print("Войдите в сервис в открытом браузере. CAPTCHA проходите вручную.")
-                await asyncio.to_thread(input, "Когда вход завершён, нажмите Enter здесь… ")
+                if confirm:
+                    await confirm()
+                else:
+                    await asyncio.to_thread(input, "Когда вход завершён, нажмите Enter здесь… ")
                 atomic_json(args.session, await context.storage_state(indexed_db=True))
             finally:
                 await browser.close()
@@ -62,6 +65,7 @@ def main():
     parser.add_argument("--cores", default="cores")
     parser.add_argument("--data", default="data")
     sub = parser.add_subparsers(dest="command")
+    sub.add_parser("gui", help="Окно настройки и запуска")
     sub.add_parser("configure", help="Интерактивная настройка")
     p = sub.add_parser("setup", help="Загрузка ядер и Chromium")
     p.add_argument("--no-browser", action="store_true")
@@ -79,6 +83,9 @@ def main():
     p.add_argument("--output", default="reports/report.html")
     args = parser.parse_args()
     try:
+        if args.command == "gui":
+            from .gui import launch
+            return launch(args.config, args.cores, args.data)
         if not args.command:
             print("ProxyTester " + __version__)
             if not Path(args.config).exists():
