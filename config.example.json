@@ -1,0 +1,37 @@
+{
+  "subscriptions": [],
+  "files": [],
+  "parallel": 2,
+  "timeout": 20,
+  "node_timeout": 240,
+  "retries": 1,
+  "latency_samples": 3,
+  "latency_url": "https://www.gstatic.com/generate_204",
+  "speed": true,
+  "download_bytes": 5000000,
+  "upload_bytes": 0,
+  "speed_repeats": 1,
+  "download_url": "https://speed.cloudflare.com/__down?bytes={bytes}",
+  "upload_url": "https://speed.cloudflare.com/__up",
+  "warp": true,
+  "warp_api": "https://api.cloudflareclient.com/v0a4471",
+  "warp_cache_days": 7,
+  "browser": true,
+  "browser_settle_ms": 3000,
+  "storage_state": null,
+  "services": [
+    {
+      "name": "NotebookLM",
+      "url": "https://notebooklm.google.com/",
+      "success_selector": "button:has-text('Create new'), button:has-text('New notebook'), button:has-text('Создать'), button:has-text('Новый блокнот')"
+    },
+    {
+      "name": "Gemini",
+      "url": "https://gemini.google.com/app",
+      "success_selector": "rich-textarea [contenteditable=true], textarea[aria-label*='prompt' i]"
+    }
+  ],
+  "cloudflare_urls": [
+    "https://www.cloudflare.com/"
+  ]
+}

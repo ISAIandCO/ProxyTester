@@ -1,0 +1,14 @@
+{
+  "xray": {
+    "version": "26.11.9",
+    "repository": "XTLS/Xray-core",
+    "windows": {"asset": "Xray-windows-64.zip", "sha256": "1262522266337b824f07beb8e1375786b437683b3890105469088f8e17e0a69d"},
+    "linux": {"asset": "Xray-linux-64.zip", "sha256": "b651f7e1d9966ee2c1b1ee1bf8b52c72771824d3065dce96bbc8bcc19ed95f82"}
+  },
+  "sing-box": {
+    "version": "1.14.4",
+    "repository": "SagerNet/sing-box",
+    "windows": {"asset": "sing-box-1.14.4-windows-amd64.zip", "sha256": "99185d75d314a07dbba4a130c8ad986cbeb629a07927975636b341ca61f991df"},
+    "linux": {"asset": "sing-box-1.14.4-linux-amd64.tar.gz", "sha256": "699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968"}
+  }
+}
