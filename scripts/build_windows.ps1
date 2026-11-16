@@ -3,6 +3,7 @@ python -m PyInstaller --noconfirm --clean scripts/windows.spec
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 Copy-Item -Recurse cores dist/ProxyTester/cores
 Copy-Item README.md, LICENSE, THIRD_PARTY.md, config.example.json, Start.cmd dist/ProxyTester/
+Copy-Item -Recurse docs dist/ProxyTester/docs
 $env:PLAYWRIGHT_BROWSERS_PATH = "$PWD/dist/ProxyTester/browsers"
 python -m playwright install chromium
 if ($LASTEXITCODE -ne 0) { throw "Chromium installation failed" }

@@ -2,6 +2,7 @@
 import asyncio
 import os
 import shutil
+import sys
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -12,21 +13,56 @@ from .cores import free_port
 from .services import BrowserConnectionError, browser_options
 
 
+def discover_browsers():
+    """Installed stable Chromium browsers, with distinct installations preserved."""
+    candidates = []
+    names = (("Brave", "brave.exe"), ("Google Chrome", "chrome.exe"), ("Microsoft Edge", "msedge.exe"))
+    if sys.platform == "win32":
+        import winreg
+        for label, executable in names:
+            for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                for view in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+                    try:
+                        key_path = r"Software\Microsoft\Windows\CurrentVersion\App Paths" + "\\" + executable
+                        with winreg.OpenKey(hive, key_path, 0, winreg.KEY_READ | view) as key:
+                            candidates.append((label, winreg.QueryValueEx(key, None)[0]))
+                    except OSError:
+                        pass
+    for label, relative in (("Brave", "BraveSoftware/Brave-Browser/Application/brave.exe"),
+                            ("Google Chrome", "Google/Chrome/Application/chrome.exe"),
+                            ("Microsoft Edge", "Microsoft/Edge/Application/msedge.exe")):
+        for name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            if base := os.environ.get(name):
+                candidates.append((label, str(Path(base) / relative)))
+    for label, executable in (("Brave", "brave.exe"), ("Google Chrome", "chrome.exe"), ("Microsoft Edge", "msedge.exe"),
+                              ("Brave", "brave-browser"), ("Brave", "brave"), ("Google Chrome", "google-chrome"),
+                              ("Google Chrome", "google-chrome-stable"), ("Microsoft Edge", "microsoft-edge"),
+                              ("Chromium", "chromium"), ("Chromium", "chromium-browser")):
+        if path := shutil.which(executable):
+            candidates.append((label, path))
+    found, seen = [], set()
+    for label, value in candidates:
+        if not isinstance(value, str):
+            continue
+        path = Path(os.path.expandvars(value).strip().strip('"')).expanduser()
+        if path.is_file():
+            resolved = str(path.resolve())
+            key = os.path.normcase(resolved)
+            if key not in seen:
+                found.append((label, resolved))
+                seen.add(key)
+    return found
+
+
 def login_executable(configured, bundled):
     if configured:
         path = Path(configured).expanduser()
         if not path.is_file():
             raise BrowserConnectionError("Браузер для входа не найден. Проверьте путь Brave / Chrome / Edge в параметрах.")
         return str(path.resolve())
-    # Prefer a supported installed browser. Never read or attach to its personal profile.
-    for relative in ("BraveSoftware/Brave-Browser/Application/brave.exe", "Google/Chrome/Application/chrome.exe", "Microsoft/Edge/Application/msedge.exe"):
-        for name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
-            base = os.environ.get(name)
-            if base and (path := Path(base) / relative).is_file():
-                return str(path)
-    for name in ("brave-browser", "brave", "google-chrome", "google-chrome-stable", "microsoft-edge", "chromium", "chromium-browser"):
-        if path := shutil.which(name):
-            return path
+    found = discover_browsers()
+    if found:
+        return found[0][1]
     if Path(bundled).is_file():
         return bundled
     raise BrowserConnectionError("Для входа установите Brave / Chrome / Edge либо подготовьте встроенный Chromium.")

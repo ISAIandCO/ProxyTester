@@ -10,7 +10,7 @@ from . import __version__
 from .config import load, wizard
 from .cores import install, Route
 from .network import verify
-from .login_browser import manual_browser
+from .login_browser import discover_browsers, manual_browser
 from .report import write_report
 from .runner import Runner
 from .services import BrowserConnectionError, verify_browser_route
@@ -24,6 +24,19 @@ def root():
 
 async def login(cfg, args, confirm=None, progress=print):
     from playwright.async_api import async_playwright, Error
+    if not cfg.get("browser_executable") and confirm is None:
+        browsers = discover_browsers()
+        if len(browsers) > 1:
+            for index, (name, path) in enumerate(browsers, 1):
+                print(f"{index}. {name} — {path}")
+            choice = await asyncio.to_thread(input, "Выберите браузер для входа [1]: ")
+            try:
+                index = int(choice or "1") - 1
+                if not 0 <= index < len(browsers):
+                    raise ValueError()
+                cfg = {**cfg, "browser_executable": browsers[index][1]}
+            except ValueError:
+                raise ValueError("Укажите номер браузера из списка") from None
     nodes = await collect(cfg)
     node = next((n for n in nodes if n.id == args.node and not n.issue), None)
     if not node:
@@ -52,6 +65,8 @@ async def login(cfg, args, confirm=None, progress=print):
     config_path = Path(args.config)
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     saved["storage_state"] = str(Path(args.session).resolve())
+    if cfg.get("browser_executable"):
+        saved["browser_executable"] = cfg["browser_executable"]
     atomic_json(config_path, saved)
     print("Сессия сохранена и подключена в настройках. Файл содержит секреты — не публикуйте его.")
 

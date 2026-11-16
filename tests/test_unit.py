@@ -14,7 +14,7 @@ from proxytester.network import client, parse_trace
 from proxytester.report import write_report
 from proxytester.runner import failed
 from proxytester.services import browser_options, classify, cloudflare
-from proxytester.login_browser import login_executable
+from proxytester.login_browser import discover_browsers, login_executable
 from proxytester.subscriptions import parse
 from proxytester.util import error_kind, public_url
 from proxytester.warp import decode_registration, valid_identity, WarpError
@@ -222,9 +222,40 @@ class OutputTests(unittest.TestCase):
             brave.touch()
             custom = Path(directory) / "custom.exe"
             custom.touch()
-            with patch.dict(os.environ, {"LOCALAPPDATA": directory}, clear=True), patch("proxytester.login_browser.shutil.which", return_value=None):
+            with patch.dict(os.environ, {"LOCALAPPDATA": directory}, clear=True), patch("proxytester.login_browser.shutil.which", return_value=None), patch("proxytester.login_browser.sys.platform", "linux"):
                 self.assertEqual(login_executable(None, "missing"), str(brave))
                 self.assertEqual(login_executable(str(custom), "missing"), str(custom.resolve()))
+
+    def test_chrome_edge_multiple_installations_are_found_without_duplicates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [Path(directory) / "machine/Google/Chrome/Application/chrome.exe",
+                     Path(directory) / "user/Google/Chrome/Application/chrome.exe",
+                     Path(directory) / "machine/Microsoft/Edge/Application/msedge.exe"]
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            env = {"PROGRAMFILES": str(Path(directory) / "machine"), "LOCALAPPDATA": str(Path(directory) / "user")}
+            with patch.dict(os.environ, env, clear=True), patch("proxytester.login_browser.sys.platform", "linux"), patch("proxytester.login_browser.shutil.which", return_value=str(paths[0])):
+                browsers = discover_browsers()
+            self.assertEqual({path for _, path in browsers}, {str(path.resolve()) for path in paths})
+            self.assertEqual(len(browsers), 3)
+            self.assertIn(("Microsoft Edge", str(paths[2].resolve())), browsers)
+
+    def test_windows_registry_browser_outside_standard_folders(self):
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+        import sys
+        with tempfile.TemporaryDirectory() as directory:
+            edge = Path(directory) / "custom-edge.exe"
+            edge.touch()
+            def open_key(hive, path, *args):
+                if path.endswith("msedge.exe"):
+                    return nullcontext(path)
+                raise FileNotFoundError()
+            registry = SimpleNamespace(HKEY_CURRENT_USER=1, HKEY_LOCAL_MACHINE=2, KEY_READ=4,
+                KEY_WOW64_64KEY=8, KEY_WOW64_32KEY=16, OpenKey=open_key, QueryValueEx=lambda *args: ('"' + str(edge) + '"', 1))
+            with patch.dict(sys.modules, {"winreg": registry}), patch.dict(os.environ, {}, clear=True), patch("proxytester.login_browser.sys.platform", "win32"), patch("proxytester.login_browser.shutil.which", return_value=None):
+                self.assertEqual(discover_browsers(), [("Microsoft Edge", str(edge.resolve()))])
 
     def test_missing_configured_browser_does_not_silently_switch(self):
         from proxytester.services import BrowserConnectionError

@@ -11,7 +11,7 @@ import tkinter as tk
 import webbrowser
 from copy import deepcopy
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 from types import SimpleNamespace
 from urllib.parse import urlsplit
@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 from . import __version__
 from .config import DEFAULT, load, validate
 from .cores import install
+from .login_browser import discover_browsers
 from .runner import Runner
 from .services import BrowserConnectionError
 from .subscriptions import collect
@@ -42,6 +43,32 @@ def describe_error(exc):
     if type(exc) in (ValueError, RuntimeError) and "http" not in str(exc).lower():
         return str(exc)
     return error_kind(exc)
+
+
+class BrowserDialog(simpledialog.Dialog):
+    def __init__(self, parent, browsers, current=""):
+        self.browsers = browsers
+        self.current = current
+        super().__init__(parent, title="Выберите браузер")
+
+    def body(self, master):
+        ttk.Label(master, text="Найдено несколько браузеров. Выберите, в каком войти в сервис.\nВыбор сохранится в настройках.", wraplength=620).pack(anchor="w", padx=10, pady=10)
+        selected = next((i for i, (_, path) in enumerate(self.browsers) if path == self.current), 0)
+        self.selection = tk.IntVar(value=selected)
+        for index, (name, path) in enumerate(self.browsers):
+            ttk.Radiobutton(master, text=name, variable=self.selection, value=index).pack(anchor="w", padx=10, pady=(8, 0))
+            ttk.Label(master, text=path, wraplength=620, foreground="#52637a").pack(anchor="w", padx=32, pady=(0, 6))
+
+    def apply(self):
+        self.result = self.browsers[self.selection.get()][1]
+
+    def buttonbox(self):
+        box = ttk.Frame(self)
+        ttk.Button(box, text="Выбрать", command=self.ok).pack(side="left", padx=6, pady=10)
+        ttk.Button(box, text="Отмена", command=self.cancel).pack(side="left", padx=6, pady=10)
+        self.bind("<Return>", self.ok)
+        self.bind("<Escape>", self.cancel)
+        box.pack()
 
 
 class Worker:
@@ -307,7 +334,11 @@ class App:
             ttk.Label(advanced, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=5)
             ttk.Entry(advanced, textvariable=self.vars[key]).grid(row=row, column=1, sticky="ew", pady=5)
             if key in ("browser_executable", "storage_state"):
-                ttk.Button(advanced, text="Обзор…", command=lambda k=key: self.choose_file(k)).grid(row=row, column=2, padx=(8, 0))
+                buttons = ttk.Frame(advanced)
+                buttons.grid(row=row, column=2, padx=(8, 0))
+                if key == "browser_executable":
+                    ttk.Button(buttons, text="Найти…", command=self.choose_browser).pack(side="left", padx=(0, 6))
+                ttk.Button(buttons, text="Обзор…", command=lambda k=key: self.choose_file(k)).pack(side="left")
 
     def build_run(self):
         frame = self.tabs[3]
@@ -467,6 +498,18 @@ class App:
         if path:
             self.vars[key].set(path)
 
+    def choose_browser(self, browsers=None):
+        browsers = discover_browsers() if browsers is None else browsers
+        if not browsers:
+            messagebox.showinfo("Браузеры не найдены", "Chrome, Edge и Brave не найдены. Укажите путь кнопкой «Обзор…» или оставьте поле пустым для встроенного Chromium.", parent=self.root)
+            return False
+        path = browsers[0][1] if len(browsers) == 1 else BrowserDialog(self.root, browsers, self.vars["browser_executable"].get()).result
+        if not path:
+            return False
+        self.vars["browser_executable"].set(path)
+        self.status.set("Выбран браузер: " + next(name for name, candidate in browsers if candidate == path))
+        return True
+
     def choose_output(self):
         path = filedialog.asksaveasfilename(parent=self.root, defaultextension=".html", filetypes=[("HTML", "*.html")])
         if path:
@@ -540,6 +583,10 @@ class App:
         if len(selected) != 1:
             messagebox.showinfo("Выберите сервер", "Загрузите список серверов и выделите один для входа в сервис.", parent=self.root)
             return
+        if not self.vars["browser_executable"].get().strip():
+            browsers = discover_browsers()
+            if browsers and not self.choose_browser(browsers):
+                return
         if not self.save_config():
             return
         config = deepcopy(self.config)

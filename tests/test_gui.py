@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from proxytester.config import DEFAULT, load
-from proxytester.gui import App, MODES, Worker
+from proxytester.gui import App, BrowserDialog, MODES, Worker
 
 
 class WorkerTests(unittest.TestCase):
@@ -200,17 +200,42 @@ class NativeGuiTests(unittest.TestCase):
         self.app.results.selection_set("one")
         async def prepared(*args):
             pass
+        captured = {}
         async def login(config, args, confirm=None, progress=None):
+            captured.update(config)
             await confirm()
             config["storage_state"] = args.session
             from proxytester.util import atomic_json
             atomic_json(args.config, config)
-        with patch("proxytester.gui.prepare_components", prepared), patch("proxytester.cli.login", login):
+        browsers = [("Google Chrome", "C:/Browsers/Chrome/chrome.exe"), ("Microsoft Edge", "C:/Browsers/Edge/msedge.exe"), ("Brave", "C:/Browsers/Brave/brave.exe")]
+        def select_edge():
+            dialog = next(child for child in self.root.winfo_children() if isinstance(child, BrowserDialog))
+            dialog.selection.set(1)
+            dialog.update()
+            if sys.platform == "win32" and os.environ.get("PROXYTESTER_GUI_QA") == "1":
+                from gui_capture import capture
+                capture(dialog, Path("data/gui-qa/browser-choice.bmp"))
+            dialog.ok()
+        self.root.after(100, select_edge)
+        with patch("proxytester.gui.prepare_components", prepared), patch("proxytester.cli.login", login), patch("proxytester.gui.discover_browsers", return_value=browsers):
             self.app.authorize()
             self.pump(lambda: str(self.app.session_button["state"]) == "normal")
             self.app.finish_auth()
             self.pump(lambda: not self.app.busy)
         self.assertTrue(self.app.vars["storage_state"].get().endswith(".session.json"))
+        self.assertEqual(captured["browser_executable"], browsers[1][1])
+        self.assertEqual(load(self.app.path)["browser_executable"], browsers[1][1])
+
+    def test_cancel_browser_choice_does_not_start_authorization(self):
+        self.app.display_report({"results": [{"id": "one", "name": "Fixture", "protocol": "vless", "status": "pending"}]})
+        self.app.results.selection_set("one")
+        def cancel():
+            next(child for child in self.root.winfo_children() if isinstance(child, BrowserDialog)).cancel()
+        self.root.after(100, cancel)
+        with patch("proxytester.gui.discover_browsers", return_value=[("Chrome", "chrome.exe"), ("Edge", "msedge.exe")]):
+            self.app.authorize()
+        self.assertFalse(self.app.worker.running)
+        self.assertFalse(self.app.path.exists())
 
     def test_layout_and_optional_windows_capture(self):
         for index, name in enumerate(("subscriptions", "services", "settings", "run")):

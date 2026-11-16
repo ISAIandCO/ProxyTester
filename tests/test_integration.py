@@ -588,6 +588,25 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(session_path.exists())
         print("PUBLIC GOOGLE headed login:", progress)
 
+    @unittest.skipUnless(os.name == "nt" and os.environ.get("PROXYTESTER_BROWSER_TESTS") == "1", "Installed Windows browsers QA")
+    async def test_detected_chrome_and_edge_use_the_authenticated_route(self):
+        from proxytester.login_browser import discover_browsers, manual_browser
+        from proxytester.services import verify_browser_route
+        from playwright.async_api import async_playwright
+        browsers = [(name, path) for name, path in discover_browsers() if name in ("Google Chrome", "Microsoft Edge")]
+        self.assertEqual({name for name, _ in browsers}, {"Google Chrome", "Microsoft Edge"}, browsers)
+        node, _ = await self.vless()
+        async with Route(CORES, node, 5).base() as proxy:
+            async with async_playwright() as pw:
+                for name, path in browsers:
+                    async with manual_browser(pw, proxy, 15, executable=path) as (context, page):
+                        with patch("proxytester.services.TRACE_URL", self.url + "/trace"):
+                            await verify_browser_route(page, {"ip": "203.0.113.9", "warp": "off"}, 5)
+                        await page.goto(self.url + "/ready")
+                        await page.wait_for_selector("#ready")
+                        self.assertFalse(await page.evaluate("navigator.webdriver"))
+                    print("DETECTED BROWSER route verified:", name, path)
+
 
 if __name__ == "__main__":
     unittest.main()
