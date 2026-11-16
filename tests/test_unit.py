@@ -223,7 +223,7 @@ class OutputTests(unittest.TestCase):
             custom = Path(directory) / "custom.exe"
             custom.touch()
             with patch.dict(os.environ, {"LOCALAPPDATA": directory}, clear=True), patch("proxytester.login_browser.shutil.which", return_value=None), patch("proxytester.login_browser.sys.platform", "linux"):
-                self.assertEqual(login_executable(None, "missing"), str(brave))
+                self.assertEqual(login_executable(None, "missing"), str(brave.resolve()))
                 self.assertEqual(login_executable(str(custom), "missing"), str(custom.resolve()))
 
     def test_chrome_edge_multiple_installations_are_found_without_duplicates(self):
