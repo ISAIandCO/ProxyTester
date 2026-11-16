@@ -8,13 +8,27 @@
 пользовательские пути и отсутствие дубликатов. В Windows дополнительно
 запускаются найденные Chrome и Edge через аутентифицированный VPN-маршрут.
 
-Набор содержит 82 проверки: 46 модульных, 24 интеграционные, 11 GUI и
-1 браузерную для отчёта. Локально прошли 46 модульных проверок и 3 проверки
-worker; 8 нативных Tk-проверок требуют Windows или display.
+**82 проверки прошли без пропусков:** 46 модульных, 24 интеграционные,
+11 GUI и 1 браузерная для отчёта. Windows Server 2025 x64, Python 3.12.10.
+Время набора — 101.620 секунды. Найденные Google Chrome и Microsoft Edge
+запущены напрямую и проверены через аутентифицированный VLESS-маршрут.
+В Brave проверено сохранение сессии и её чтение фоновым Chromium.
+Диалог выбора осмотрен по снимку Windows; готовые CLI/GUI прошли smoke-проверки.
+
+Локально дополнительно прошли 46 модульных проверок и 3 проверки worker.
+Нативные Tk-проверки выполнялись на Windows.
 
 Перед публикацией релиза workflow обязан успешно выполнить Windows-набор,
 собрать portable ZIP и проверить готовые CLI/GUI. Результат и журнал:
-[Test and build Windows portable](https://github.com/ISAIandCO/ProxyTester/actions/workflows/windows.yml).
+[Успешный workflow](https://github.com/ISAIandCO/ProxyTester/actions/runs/43889725834).
+
+Проверенный код: [`7ceac36`](https://github.com/ISAIandCO/ProxyTester/commit/7ceac362f2a1b685d7472c61071b9444127e447b).
+[Опубликованный релиз 1.2.0](https://github.com/ISAIandCO/ProxyTester/releases/tag/v1.2.0)
+содержит ZIP и SHA256SUMS.txt. Размер ZIP — 436856203 байта. SHA-256:
+
+```text
+f8927a6d96fab12688b5abe09e029e88c1931735c4719160de7c73ca2f1e7d4c
+```
 
 Релиз публикуется только после успешной сборки, вручную с флагом
 `publish_release` или по точному заголовку коммита `Release vВЕРСИЯ`.
